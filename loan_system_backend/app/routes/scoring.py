@@ -2,8 +2,10 @@ from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select, desc
 
+import pandas as pd
+
 from app.db import SessionLocal
-from app.models import LoanApplication, ClientFinancial, CreditScore
+from app.models import LoanApplication, CreditScore, CreditlineFinancial
 from app.http_client import call_scoring_api
 from app.auth_guard import require_auth
 from app.utils import payload_signature
@@ -11,43 +13,103 @@ from app.utils import payload_signature
 bp = Blueprint("scoring", url_prefix="/applications")
 
 
+# =========================
+# Helpers
+# =========================
+def _to_float(x, default=0.0):
+    try:
+        if x is None:
+            return default
+        if isinstance(x, str):
+            x = x.replace(",", "").strip()
+        if x == "":
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+
+def _mode(values, default=0.0):
+    vals = [v for v in values if v is not None]
+    if not vals:
+        return default
+    s = pd.Series(vals)
+    m = s.mode()
+    if len(m) == 0:
+        return default
+    return float(m.iloc[0])
+
+
+def aggregate_creditlines(rows: list[CreditlineFinancial]) -> dict:
+    """
+    Aggregate multiple creditlines into ONE row
+    matching ML model expected features.
+    """
+
+    if not rows:
+        return {}
+
+    # handle dates safely
+    dates = []
+    for r in rows:
+        d = pd.to_datetime(r.start_date, errors="coerce")
+        if not pd.isna(d):
+            dates.append(d)
+
+    start_date = min(dates).strftime("%Y-%m-%d") if dates else ""
+
+    return {
+        # These keys MUST match your ML model training columns
+        "Outstanding": sum(_to_float(r.outstanding) for r in rows),
+        "Payment plan": sum(_to_float(r.payment_plan) for r in rows),
+        "Remaining Period": max(_to_float(r.remaining_period) for r in rows),
+        "Periodicity": _mode([r.periodicity for r in rows], 0.0),
+        "Class": _mode([r.class_value for r in rows], 0.0),
+        "Compulsory saving": sum(_to_float(r.compulsory_saving) for r in rows),
+        "Voluntary saving": sum(_to_float(r.voluntary_saving) for r in rows),
+        "Salary": max(_to_float(r.salary) for r in rows),
+        " Duration": max(_to_float(r.duration) for r in rows),
+        "Start date": start_date
+    }
+
+
+# =========================
+# Score Application
+# =========================
 @bp.post("/<app_id:int>/score")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def score_application(request, app_id: int):
+
     async with SessionLocal() as session:
         app_ = await session.get(LoanApplication, app_id)
         if not app_:
             return json({"error": "application not found"}, status=404)
 
-        # Optional: block scoring finalized apps
+        # Block finalized apps
         if app_.status in {"APPROVED", "REJECTED"}:
             return json({
                 "error": "already_finalized",
                 "message": f"Application is already {app_.status}. Admin override required to re-score."
             }, status=409)
 
-        fin = await session.scalar(
-            select(ClientFinancial).where(ClientFinancial.client_id == app_.client_id)
-        )
-        if not fin:
-            return json({"error": "client financials not found"}, status=404)
+        # 🔥 NEW: fetch ALL creditlines for this client
+        creditlines = (await session.execute(
+            select(CreditlineFinancial)
+            .where(CreditlineFinancial.client_id == app_.client_id)
+        )).scalars().all()
 
-        payload = {
-            "Outstanding": fin.outstanding,
-            "Payment plan": fin.payment_plan,
-            "Remaining Period": fin.remaining_period,
-            "Periodicity": fin.periodicity,
-            "Class": fin.class_value,
-            "Compulsory saving": fin.compulsory_saving,
-            "Voluntary saving": fin.voluntary_saving,
-            "Salary": fin.salary,
-            " Duration": fin.duration,
-            "Start date": fin.start_date or ""
-        }
+        if not creditlines:
+            return json({
+                "error": "no_creditlines",
+                "message": "No creditline financials found for this client."
+            }, status=404)
+
+        # 🔥 Aggregate them
+        payload = aggregate_creditlines(creditlines)
 
         sig = payload_signature(payload)
 
-        # ✅ Check latest existing score for this application
+        # Check latest existing score for this application
         latest_score = await session.scalar(
             select(CreditScore)
             .where(CreditScore.application_id == app_id)
@@ -61,7 +123,6 @@ async def score_application(request, app_id: int):
                 meta = (latest_score.top_factors or {}).get("_meta", {}) or {}
 
             if meta.get("payload_sig") == sig:
-                # No changes -> return cached
                 return json({
                     "application_id": app_.id,
                     "status": app_.status,
@@ -75,13 +136,15 @@ async def score_application(request, app_id: int):
                     }
                 })
 
-        # Otherwise call ML API
+        # Call ML scoring API
         try:
             result = await call_scoring_api(payload)
         except Exception as e:
-            return json({"error": "scoring service failed", "message": str(e)}, status=502)
+            return json({
+                "error": "scoring_service_failed",
+                "message": str(e)
+            }, status=502)
 
-        # Store factors in a structured dict so we can attach meta
         stored_top_factors = {
             "factors": result.get("top_factors", []),
             "_meta": {
@@ -101,6 +164,7 @@ async def score_application(request, app_id: int):
         session.add(cs)
 
         app_.status = "SCORED"
+
         await session.commit()
 
         return json({

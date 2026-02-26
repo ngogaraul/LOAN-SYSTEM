@@ -7,18 +7,18 @@ import { getAuth } from "../auth/auth";
 import {
   Box, Paper, Typography, Stack, TextField, Button,
   Table, TableHead, TableRow, TableCell, TableBody,
-  IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions, Chip
+  IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
+  Chip, Menu, MenuItem
 } from "@mui/material";
 
-import VisibilityIcon from "@mui/icons-material/Visibility";
-import BlockIcon from "@mui/icons-material/Block";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import DeleteIcon from "@mui/icons-material/Delete";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 
 function statusColor(status) {
-  const s = String(status || "ACTIVE").toUpperCase();
+  const s = String(status || "").toUpperCase();
   if (s === "ACTIVE") return "success";
   if (s === "SUSPENDED") return "warning";
-  if (s === "CLOSED") return "error";
+  if (s === "CLOSED") return "default";
   return "default";
 }
 
@@ -26,19 +26,20 @@ export default function Clients() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
 
-  // ✅ IMPORTANT: normalize role
   const role = (getAuth()?.role || "ANALYST").toUpperCase();
-  const isAdmin = role === "ADMIN";
 
   const [search, setSearch] = useState("");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Status dialog
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [row, setRow] = useState(null);
-  const [nextStatus, setNextStatus] = useState("CLOSED");
-  const [savingStatus, setSavingStatus] = useState(false);
+  // delete dialog
+  const [delOpen, setDelOpen] = useState(false);
+  const [delRow, setDelRow] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // status menu (admin)
+  const [menuAnchor, setMenuAnchor] = useState(null);
+  const [menuClient, setMenuClient] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -47,7 +48,7 @@ export default function Clients() {
         params: { search: search.trim() || undefined },
       });
       setItems(res.data || []);
-    } catch (e) {
+    } catch {
       enqueueSnackbar("Failed to load clients.", { variant: "error" });
     } finally {
       setLoading(false);
@@ -56,25 +57,48 @@ export default function Clients() {
 
   useEffect(() => { load(); }, []); // eslint-disable-line
 
-  function openStatusDialog(client, targetStatus) {
-    setRow(client);
-    setNextStatus(targetStatus);
-    setStatusOpen(true);
+  function openDelete(c) {
+    setDelRow(c);
+    setDelOpen(true);
   }
 
-  async function confirmStatusChange() {
-    if (!row) return;
-    setSavingStatus(true);
+  async function confirmDelete() {
+    if (!delRow) return;
+    setDeleting(true);
     try {
-      await api.patch(`/clients/${row.id}/status`, { status: nextStatus });
-      enqueueSnackbar(`Client status changed to ${nextStatus}.`, { variant: "success" });
-      setStatusOpen(false);
+      await api.delete(`/clients/${delRow.id}`);
+      enqueueSnackbar("Client deleted.", { variant: "success" });
+      setDelOpen(false);
+      await load();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || "Delete failed";
+      enqueueSnackbar(msg, { variant: "error" });
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function openStatusMenu(e, c) {
+    e.stopPropagation();
+    setMenuAnchor(e.currentTarget);
+    setMenuClient(c);
+  }
+
+  function closeStatusMenu() {
+    setMenuAnchor(null);
+    setMenuClient(null);
+  }
+
+  async function setStatus(newStatus) {
+    if (!menuClient) return;
+    try {
+      await api.patch(`/clients/${menuClient.id}/status`, { status: newStatus });
+      enqueueSnackbar(`Status updated to ${newStatus}.`, { variant: "success" });
+      closeStatusMenu();
       await load();
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "Status update failed";
       enqueueSnackbar(msg, { variant: "error" });
-    } finally {
-      setSavingStatus(false);
     }
   }
 
@@ -94,9 +118,6 @@ export default function Clients() {
           <Button variant="contained" onClick={load} disabled={loading}>
             {loading ? "Loading..." : "Search"}
           </Button>
-
-          {/* ✅ quick debug: show role in UI */}
-          <Chip size="small" label={`Role: ${role}`} />
         </Stack>
       </Paper>
 
@@ -114,67 +135,51 @@ export default function Clients() {
           </TableHead>
 
           <TableBody>
-            {items.map((c) => {
-              const status = String(c.status || "ACTIVE").toUpperCase();
-              const canReactivate = status !== "ACTIVE";
-              return (
-                <TableRow
-                  key={c.id}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => navigate(`/clients/${c.id}`)}
-                >
-                  <TableCell>{c.id}</TableCell>
-                  <TableCell>{c.account}</TableCell>
-                  <TableCell>{c.full_name}</TableCell>
-                  <TableCell>{c.phone}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={status} color={statusColor(status)} />
-                  </TableCell>
+            {items.map((c) => (
+              <TableRow
+                key={c.id}
+                hover
+                sx={{ cursor: "pointer" }}
+                onClick={() => navigate(`/clients/${c.id}`)}
+              >
+                <TableCell>{c.id}</TableCell>
+                <TableCell>{c.account}</TableCell>
+                <TableCell>{c.full_name}</TableCell>
+                <TableCell>{c.phone}</TableCell>
+                <TableCell>
+                  <Chip size="small" label={c.status || "ACTIVE"} color={statusColor(c.status)} />
+                </TableCell>
 
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title="View details">
-                      <IconButton size="small" onClick={() => navigate(`/clients/${c.id}`)}>
-                        <VisibilityIcon fontSize="small" />
+                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                  {/* Admin status control */}
+                  <Tooltip title={role === "ADMIN" ? "Change status" : "Admin only"}>
+                    <span>
+                      <IconButton
+                        size="small"
+                        disabled={role !== "ADMIN"}
+                        onClick={(e) => openStatusMenu(e, c)}
+                      >
+                        <MoreVertIcon fontSize="small" />
                       </IconButton>
-                    </Tooltip>
+                    </span>
+                  </Tooltip>
 
-                    {/* ✅ ADMIN: activate/deactivate */}
-                    {isAdmin ? (
-                      canReactivate ? (
-                        <Tooltip title="Reactivate client (set ACTIVE)">
-                          <IconButton
-                            size="small"
-                            color="success"
-                            onClick={() => openStatusDialog(c, "ACTIVE")}
-                          >
-                            <CheckCircleIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip title="Deactivate client (set CLOSED)">
-                          <IconButton
-                            size="small"
-                            color="warning"
-                            onClick={() => openStatusDialog(c, "CLOSED")}
-                          >
-                            <BlockIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )
-                    ) : (
-                      <Tooltip title="Admin only">
-                        <span>
-                          <IconButton size="small" disabled>
-                            <BlockIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                  {/* Delete */}
+                  <Tooltip title={role === "ADMIN" ? "Delete client" : "Admin only"}>
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="error"
+                        disabled={role !== "ADMIN"}
+                        onClick={() => openDelete(c)}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </TableCell>
+              </TableRow>
+            ))}
 
             {items.length === 0 && (
               <TableRow>
@@ -189,20 +194,29 @@ export default function Clients() {
         </Table>
       </Paper>
 
-      <Dialog open={statusOpen} onClose={() => setStatusOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Change client status</DialogTitle>
+      {/* Status menu */}
+      <Menu
+        anchorEl={menuAnchor}
+        open={!!menuAnchor}
+        onClose={closeStatusMenu}
+      >
+        <MenuItem onClick={() => setStatus("ACTIVE")}>Set ACTIVE</MenuItem>
+        <MenuItem onClick={() => setStatus("SUSPENDED")}>Set SUSPENDED</MenuItem>
+        <MenuItem onClick={() => setStatus("CLOSED")}>Set CLOSED</MenuItem>
+      </Menu>
+
+      {/* Delete dialog */}
+      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Delete client?</DialogTitle>
         <DialogContent>
           <Typography>
-            Change <b>{row?.account}</b> ({row?.full_name}) to <b>{nextStatus}</b>?
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-            If client is not ACTIVE, they cannot submit new loan applications.
+            Delete client <b>{delRow?.account}</b> ({delRow?.full_name})? This cannot be undone.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setStatusOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={confirmStatusChange} disabled={savingStatus}>
-            {savingStatus ? "Saving..." : "Confirm"}
+          <Button onClick={() => setDelOpen(false)}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
+            {deleting ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>

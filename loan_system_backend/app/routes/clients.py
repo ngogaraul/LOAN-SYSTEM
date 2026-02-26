@@ -5,6 +5,8 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import Client, ClientFinancial, LoanApplication
 from app.auth_guard import require_auth
+from app.models import CreditlineFinancial
+from sqlalchemy import desc
 
 bp = Blueprint("clients", url_prefix="/clients")
 
@@ -224,3 +226,32 @@ async def delete_client(request, client_id: int):
         await session.commit()
 
         return json({"message": "client deleted", "client_id": client_id})
+
+
+@bp.get("/<client_id:int>/creditlines")
+@require_auth(roles=["ADMIN", "ANALYST"])
+async def list_client_creditlines(request, client_id: int):
+    async with SessionLocal() as session:
+        rows = (await session.execute(
+            select(CreditlineFinancial)
+            .where(CreditlineFinancial.client_id == client_id)
+            .order_by(desc(CreditlineFinancial.id))
+        )).scalars().all()
+
+        return json([{
+            "id": r.id,
+            "creditline": r.creditline,
+            "outstanding": r.outstanding,
+            "payment_plan": r.payment_plan,
+            "remaining_period": r.remaining_period,
+            "periodicity": r.periodicity,
+            "class_value": r.class_value,
+            "compulsory_saving": r.compulsory_saving,
+            "voluntary_saving": r.voluntary_saving,
+            "salary": r.salary,
+            "duration": r.duration,
+            "start_date": r.start_date,
+            "days_in_arrears": r.days_in_arrears,
+            "principal_arrears": r.principal_arrears,
+            "interest_arrears": r.interest_arrears,
+        } for r in rows])

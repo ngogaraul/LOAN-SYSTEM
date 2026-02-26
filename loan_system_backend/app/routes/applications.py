@@ -16,15 +16,15 @@ from app.auth_guard import require_auth
 bp = Blueprint("applications", url_prefix="/applications")
 
 
-def _role_upper(request):
-    return str((request.ctx.user or {}).get("role", "ANALYST")).strip().upper()
-
-
 @bp.post("/")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def create_application(request):
     data = request.json or {}
     client_id = data.get("client_id")
+
+    # ✅ NEW
+    creditline = (data.get("creditline") or "").strip()
+
     amount_requested = data.get("amount_requested", 0)
     purpose = data.get("purpose", "")
     term_requested = data.get("term_requested", 0)
@@ -32,21 +32,22 @@ async def create_application(request):
     if not client_id:
         return json({"error": "client_id is required"}, status=400)
 
+    if not creditline:
+        return json({"error": "creditline is required"}, status=400)
+
     async with SessionLocal() as session:
         client = await session.get(Client, int(client_id))
         if not client:
             return json({"error": "client not found"}, status=404)
 
-        # ✅ prevent apps for inactive client
-        client_status = getattr(client, "status", "ACTIVE")
-        if str(client_status).upper() != "ACTIVE":
-            return json({
-                "error": "client_inactive",
-                "message": f"Client is {client_status}. Reactivate before creating applications."
-            }, status=409)
+        # prevent duplicate creditline cleanly
+        existing = await session.scalar(select(LoanApplication).where(LoanApplication.creditline == creditline))
+        if existing:
+            return json({"error": "duplicate_creditline", "message": "Creditline already exists"}, status=409)
 
         app_ = LoanApplication(
             client_id=int(client_id),
+            creditline=creditline,
             amount_requested=float(amount_requested),
             purpose=str(purpose),
             term_requested=int(term_requested),
@@ -59,6 +60,7 @@ async def create_application(request):
         return json({
             "application_id": app_.id,
             "client_id": app_.client_id,
+            "creditline": app_.creditline,
             "status": app_.status
         })
 
@@ -97,7 +99,8 @@ async def list_applications(request):
             else:
                 q = q.where(or_(
                     Client.account.ilike(f"%{search}%"),
-                    Client.full_name.ilike(f"%{search}%")
+                    Client.full_name.ilike(f"%{search}%"),
+                    LoanApplication.creditline.ilike(f"%{search}%")
                 ))
 
         q = q.order_by(asc(LoanApplication.id) if sort == "oldest" else desc(LoanApplication.id))
@@ -110,11 +113,11 @@ async def list_applications(request):
             items.append({
                 "id": app_.id,
                 "client_id": app_.client_id,
+                "creditline": app_.creditline,
                 "client": {
                     "account": client.account,
                     "full_name": client.full_name,
-                    "phone": client.phone,
-                    "status": getattr(client, "status", "ACTIVE")
+                    "phone": client.phone
                 },
                 "amount_requested": app_.amount_requested,
                 "purpose": app_.purpose,
@@ -129,25 +132,6 @@ async def list_applications(request):
             "status_filter": status or None,
             "search": search or None,
             "items": items
-        })
-
-
-@bp.get("/<app_id:int>")
-@require_auth(roles=["ADMIN", "ANALYST"])
-async def get_application(request, app_id: int):
-    async with SessionLocal() as session:
-        app_ = await session.get(LoanApplication, app_id)
-        if not app_:
-            return json({"error": "application not found"}, status=404)
-
-        return json({
-            "id": app_.id,
-            "client_id": app_.client_id,
-            "amount_requested": app_.amount_requested,
-            "purpose": app_.purpose,
-            "term_requested": app_.term_requested,
-            "status": app_.status,
-            "submitted_at": str(app_.submitted_at)
         })
 
 
@@ -180,11 +164,7 @@ async def application_details(request, app_id: int):
                 "id": d.id,
                 "final_decision": d.final_decision,
                 "comment": d.comment,
-                "analyst": None if not analyst else {
-                    "id": analyst.id,
-                    "name": analyst.name,
-                    "email": analyst.email
-                },
+                "analyst": None if not analyst else {"id": analyst.id, "name": analyst.name, "email": analyst.email},
                 "decided_at": str(d.decided_at)
             })
 
@@ -192,6 +172,7 @@ async def application_details(request, app_id: int):
             "application": {
                 "id": app_.id,
                 "client_id": app_.client_id,
+                "creditline": app_.creditline,
                 "amount_requested": app_.amount_requested,
                 "purpose": app_.purpose,
                 "term_requested": app_.term_requested,
@@ -202,8 +183,7 @@ async def application_details(request, app_id: int):
                 "id": client.id,
                 "account": client.account,
                 "full_name": client.full_name,
-                "phone": client.phone,
-                "status": getattr(client, "status", "ACTIVE")
+                "phone": client.phone
             },
             "financials": None if not fin else {
                 "outstanding": fin.outstanding,
@@ -228,79 +208,3 @@ async def application_details(request, app_id: int):
             },
             "decisions": decisions
         })
-
-
-@bp.put("/<app_id:int>")
-@require_auth(roles=["ADMIN", "ANALYST"])
-async def update_application(request, app_id: int):
-    data = request.json or {}
-
-    async with SessionLocal() as session:
-        app_ = await session.get(LoanApplication, app_id)
-        if not app_:
-            return json({"error": "application not found"}, status=404)
-
-        if app_.status != "SUBMITTED":
-            return json({
-                "error": "cannot_edit",
-                "message": "Only SUBMITTED applications can be edited."
-            }, status=409)
-
-        if "amount_requested" in data:
-            app_.amount_requested = float(data.get("amount_requested") or 0)
-
-        if "purpose" in data:
-            app_.purpose = str(data.get("purpose") or "")
-
-        if "term_requested" in data:
-            app_.term_requested = int(data.get("term_requested") or 0)
-
-        await session.commit()
-
-        return json({"message": "application updated", "application_id": app_id})
-
-
-@bp.delete("/<app_id:int>")
-@require_auth(roles=["ADMIN", "ANALYST"])
-async def delete_application(request, app_id: int):
-    role = _role_upper(request)
-
-    async with SessionLocal() as session:
-        app_ = await session.get(LoanApplication, app_id)
-        if not app_:
-            return json({"error": "application not found"}, status=404)
-
-        if app_.status in {"APPROVED", "REJECTED"}:
-            return json({
-                "error": "cannot_delete_finalized",
-                "message": "Cannot delete APPROVED/REJECTED applications."
-            }, status=409)
-
-        if role == "ANALYST" and app_.status != "SUBMITTED":
-            return json({
-                "error": "forbidden",
-                "message": "Analyst can only delete SUBMITTED applications."
-            }, status=403)
-
-        if role == "ADMIN" and app_.status not in {"SUBMITTED", "SCORED"}:
-            return json({
-                "error": "cannot_delete",
-                "message": "Admin can only delete SUBMITTED/SCORED applications."
-            }, status=409)
-
-        scores = (await session.execute(
-            select(CreditScore).where(CreditScore.application_id == app_id)
-        )).scalars().all()
-        for s in scores:
-            await session.delete(s)
-
-        decs = (await session.execute(
-            select(Decision).where(Decision.application_id == app_id)
-        )).scalars().all()
-        for d in decs:
-            await session.delete(d)
-
-        await session.delete(app_)
-        await session.commit()
-
-        return json({"message": "application deleted", "application_id": app_id})

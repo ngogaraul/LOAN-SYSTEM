@@ -6,9 +6,11 @@ import ApplicationDetails from "./pages/ApplicationDetails";
 import ProtectedRoute from "./components/ProtectedRoute";
 import AppShell from "./components/AppShell";
 import NewClient from "./pages/NewClient";
+import EditFinancials from "./pages/EditFinancials";
 import NewApplication from "./pages/NewApplication";
 import Clients from "./pages/Clients";
 import ClientDetails from "./pages/ClientDetails";
+import Admin from "./pages/admin";
 
 export default function App() {
   return (
@@ -33,14 +35,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/applications/new"
-          element={
-            <ProtectedRoute>
-              <AppShell><NewApplication /></AppShell>
-            </ProtectedRoute>
-          }
-        />
+
         <Route
           path="/applications/:id"
           element={
@@ -58,6 +53,16 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/clients/:id"
+          element={
+            <ProtectedRoute>
+              <AppShell><ClientDetails /></AppShell>
+            </ProtectedRoute>
+          }
+        />
+
         <Route
           path="/clients/new"
           element={
@@ -66,11 +71,21 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
-          path="/clients/:id"
+          path="/applications/new"
           element={
             <ProtectedRoute>
-              <AppShell><ClientDetails /></AppShell>
+              <AppShell><NewApplication /></AppShell>
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AppShell><Admin /></AppShell>
             </ProtectedRoute>
           }
         />

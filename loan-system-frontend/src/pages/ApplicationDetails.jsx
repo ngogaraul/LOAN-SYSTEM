@@ -1,18 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import api from "../api/client";
 import { useSnackbar } from "notistack";
-import { getAuth } from "../auth/auth";
 
 import {
-  Box, Typography, Grid, Paper, Stack, Button, Chip, Divider,
-  CircularProgress, Alert, Table, TableHead, TableRow, TableCell,
-  TableBody, TextField, MenuItem, Tabs, Tab, Dialog, DialogTitle,
-  DialogContent, DialogActions, Tooltip, IconButton
+  Box,
+  Typography,
+  Grid,
+  Paper,
+  Stack,
+  Button,
+  Chip,
+  Divider,
+  CircularProgress,
+  Alert,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  TextField,
+  MenuItem,
+  Tabs,
+  Tab,
 } from "@mui/material";
-
-import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
 
 const DECISIONS = ["APPROVE", "REJECT", "REVIEW"];
 
@@ -23,6 +34,7 @@ function statusColor(status) {
   if (status === "SCORED") return "info";
   return "default";
 }
+
 function bandColor(band) {
   const b = (band || "").toLowerCase();
   if (b.includes("excellent")) return "success";
@@ -31,12 +43,14 @@ function bandColor(band) {
   if (b.includes("poor")) return "error";
   return "default";
 }
+
 function fmtMoney(x) {
   if (x === null || x === undefined || x === "") return "-";
   const n = Number(x);
   if (Number.isNaN(n)) return String(x);
   return n.toLocaleString();
 }
+
 function fmtDate(x) {
   if (!x) return "-";
   return String(x).replace("T", " ").replace(".000Z", "");
@@ -44,11 +58,7 @@ function fmtDate(x) {
 
 export default function ApplicationDetails() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
-
-  const auth = getAuth();
-  const role = auth?.role || "ANALYST";
 
   const [data, setData] = useState(null);
   const [err, setErr] = useState("");
@@ -58,15 +68,6 @@ export default function ApplicationDetails() {
   const [tab, setTab] = useState(0);
   const [decision, setDecision] = useState("REVIEW");
   const [comment, setComment] = useState("");
-
-  // Edit dialog
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ amount_requested: "", purpose: "", term_requested: "" });
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  // Delete dialog
-  const [delOpen, setDelOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setErr("");
@@ -97,7 +98,6 @@ export default function ApplicationDetails() {
   const score = data?.latest_score;
   const decisionsHistory = data?.decisions || [];
 
-  // normalize top factors
   const topFactors = useMemo(() => {
     if (!score) return [];
     const tf = score.top_factors;
@@ -115,16 +115,6 @@ export default function ApplicationDetails() {
     () => !!score && !isFinalized,
     [score, isFinalized]
   );
-
-  // Frontend rules matching backend
-  const canEditApp = useMemo(() => app?.status === "SUBMITTED", [app?.status]);
-
-  const canDeleteApp = useMemo(() => {
-    if (!app) return false;
-    if (app.status === "APPROVED" || app.status === "REJECTED") return false;
-    if (role === "ADMIN") return app.status === "SUBMITTED" || app.status === "SCORED";
-    return app.status === "SUBMITTED";
-  }, [app, role]);
 
   async function scoreNow() {
     setErr("");
@@ -172,49 +162,6 @@ export default function ApplicationDetails() {
     }
   }
 
-  function openEdit() {
-    setEditForm({
-      amount_requested: app?.amount_requested ?? "",
-      purpose: app?.purpose ?? "",
-      term_requested: app?.term_requested ?? "",
-    });
-    setEditOpen(true);
-  }
-
-  async function saveEdit() {
-    setSavingEdit(true);
-    try {
-      await api.put(`/applications/${id}`, {
-        amount_requested: Number(editForm.amount_requested),
-        purpose: String(editForm.purpose || ""),
-        term_requested: Number(editForm.term_requested),
-      });
-      enqueueSnackbar("Application updated.", { variant: "success" });
-      setEditOpen(false);
-      await load();
-    } catch (e) {
-      const msg = e?.response?.data?.message || e?.response?.data?.error || "Update failed";
-      enqueueSnackbar(msg, { variant: "error" });
-    } finally {
-      setSavingEdit(false);
-    }
-  }
-
-  async function confirmDelete() {
-    setDeleting(true);
-    try {
-      await api.delete(`/applications/${id}`);
-      enqueueSnackbar("Application deleted.", { variant: "success" });
-      navigate("/applications");
-    } catch (e) {
-      const msg = e?.response?.data?.message || e?.response?.data?.error || "Delete failed";
-      enqueueSnackbar(msg, { variant: "error" });
-    } finally {
-      setDeleting(false);
-      setDelOpen(false);
-    }
-  }
-
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", p: 6 }}>
@@ -239,28 +186,13 @@ export default function ApplicationDetails() {
           </Typography>
         </Box>
 
-        <Stack direction="row" spacing={1}>
-          <Button variant="outlined" onClick={load} disabled={actionLoading}>Refresh</Button>
-
+        <Stack direction="row" spacing={2}>
+          <Button variant="outlined" onClick={load} disabled={actionLoading}>
+            Refresh
+          </Button>
           <Button variant="contained" onClick={scoreNow} disabled={actionLoading || isFinalized}>
             Score
           </Button>
-
-          <Tooltip title={canEditApp ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
-            <span>
-              <IconButton onClick={openEdit} disabled={!canEditApp || actionLoading}>
-                <EditIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
-
-          <Tooltip title={canDeleteApp ? "Delete" : "Delete not allowed"}>
-            <span>
-              <IconButton color="error" onClick={() => setDelOpen(true)} disabled={!canDeleteApp || actionLoading}>
-                <DeleteIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
         </Stack>
       </Stack>
 
@@ -303,15 +235,46 @@ export default function ApplicationDetails() {
 
           <Grid item xs={12}>
             <Paper sx={{ p: 2 }}>
-              <Typography variant="h6">Financials</Typography>
+              <Typography variant="h6">Financial Snapshot Used for Scoring</Typography>
+              <Typography variant="body2" color="text.secondary">
+                These are the financial inputs used by the model for this client.
+              </Typography>
               <Divider sx={{ my: 1 }} />
+
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={4}><Typography><b>Outstanding:</b> {fmtMoney(fin?.outstanding)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Payment Plan:</b> {fmtMoney(fin?.payment_plan)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Salary:</b> {fmtMoney(fin?.salary)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Duration:</b> {fin?.duration ?? "-"}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Remaining:</b> {fin?.remaining_period ?? "-"}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Start:</b> {fmtDate(fin?.start_date)}</Typography></Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Outstanding:</b> {fmtMoney(fin?.outstanding)}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Payment Plan:</b> {fmtMoney(fin?.payment_plan)}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Remaining Period:</b> {fin?.remaining_period ?? "-"}</Typography>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Periodicity:</b> {fin?.periodicity ?? "-"}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Class Value:</b> {fin?.class_value ?? "-"}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Compulsory Saving:</b> {fmtMoney(fin?.compulsory_saving)}</Typography>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Voluntary Saving:</b> {fmtMoney(fin?.voluntary_saving)}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Salary:</b> {fmtMoney(fin?.salary)}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Duration:</b> {fin?.duration ?? "-"}</Typography>
+                </Grid>
+
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography><b>Start Date:</b> {fmtDate(fin?.start_date)}</Typography>
+                </Grid>
               </Grid>
             </Paper>
           </Grid>
@@ -335,7 +298,9 @@ export default function ApplicationDetails() {
                 <Chip size="small" label={`Suggested: ${score.decision_suggestion}`} />
               </Stack>
 
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>Top Factors</Typography>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Top Factors
+              </Typography>
 
               {topFactors.length === 0 ? (
                 <Alert severity="info">No explainability factors available.</Alert>
@@ -353,7 +318,9 @@ export default function ApplicationDetails() {
                       <TableRow key={idx}>
                         <TableCell>{f.feature}</TableCell>
                         <TableCell align="right">{Number(f.impact).toFixed(3)}</TableCell>
-                        <TableCell>{f.direction || (f.impact >= 0 ? "increases_risk" : "decreases_risk")}</TableCell>
+                        <TableCell>
+                          {f.direction || (f.impact >= 0 ? "increases_risk" : "decreases_risk")}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -372,7 +339,11 @@ export default function ApplicationDetails() {
               <Typography variant="h6">Make Decision</Typography>
               <Divider sx={{ my: 1 }} />
 
-              {!score && <Alert severity="warning" sx={{ mb: 2 }}>Score required before decision.</Alert>}
+              {!score && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Score required before decision.
+                </Alert>
+              )}
 
               <Stack spacing={2}>
                 <TextField
@@ -382,7 +353,9 @@ export default function ApplicationDetails() {
                   onChange={(e) => setDecision(e.target.value)}
                   disabled={!canDecide || actionLoading}
                 >
-                  {DECISIONS.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                  {DECISIONS.map((d) => (
+                    <MenuItem key={d} value={d}>{d}</MenuItem>
+                  ))}
                 </TextField>
 
                 <TextField
@@ -394,7 +367,11 @@ export default function ApplicationDetails() {
                   disabled={!canDecide || actionLoading}
                 />
 
-                <Button variant="contained" onClick={submitDecision} disabled={!canDecide || actionLoading}>
+                <Button
+                  variant="contained"
+                  onClick={submitDecision}
+                  disabled={!canDecide || actionLoading}
+                >
                   Submit Decision
                 </Button>
               </Stack>
@@ -407,7 +384,9 @@ export default function ApplicationDetails() {
               <Divider sx={{ my: 1 }} />
 
               {decisionsHistory.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No decisions yet.</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  No decisions yet.
+                </Typography>
               ) : (
                 <Table size="small">
                   <TableHead>
@@ -426,7 +405,13 @@ export default function ApplicationDetails() {
                           <Chip
                             size="small"
                             label={d.final_decision}
-                            color={d.final_decision === "APPROVE" ? "success" : d.final_decision === "REJECT" ? "error" : "warning"}
+                            color={
+                              d.final_decision === "APPROVE"
+                                ? "success"
+                                : d.final_decision === "REJECT"
+                                ? "error"
+                                : "warning"
+                            }
                           />
                         </TableCell>
                         <TableCell>{d.analyst?.name || "-"}</TableCell>
@@ -440,52 +425,6 @@ export default function ApplicationDetails() {
           </Grid>
         </Grid>
       )}
-
-      {/* EDIT DIALOG */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Edit Application</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Amount Requested"
-              value={editForm.amount_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, amount_requested: e.target.value }))}
-            />
-            <TextField
-              label="Purpose"
-              value={editForm.purpose}
-              onChange={(e) => setEditForm(p => ({ ...p, purpose: e.target.value }))}
-            />
-            <TextField
-              label="Term Requested (months)"
-              value={editForm.term_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, term_requested: e.target.value }))}
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={saveEdit} disabled={savingEdit}>
-            {savingEdit ? "Saving..." : "Save"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* DELETE CONFIRM */}
-      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Delete Application?</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Are you sure you want to delete application #{app.id}? This cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDelOpen(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? "Deleting..." : "Delete"}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

@@ -12,7 +12,7 @@ import Clients from "./pages/Clients";
 import ClientDetails from "./pages/ClientDetails";
 import Admin from "./pages/admin";
 
-export default function App() {
+export default function App({ colorMode, onToggleColorMode }) {
   return (
     <BrowserRouter>
       <Routes>
@@ -22,7 +22,7 @@ export default function App() {
           path="/"
           element={
             <ProtectedRoute>
-              <AppShell><Dashboard /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><Dashboard /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -31,7 +31,7 @@ export default function App() {
           path="/applications"
           element={
             <ProtectedRoute>
-              <AppShell><Applications /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><Applications /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -40,7 +40,7 @@ export default function App() {
           path="/applications/:id"
           element={
             <ProtectedRoute>
-              <AppShell><ApplicationDetails /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><ApplicationDetails /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -49,7 +49,7 @@ export default function App() {
           path="/clients"
           element={
             <ProtectedRoute>
-              <AppShell><Clients /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><Clients /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -58,7 +58,7 @@ export default function App() {
           path="/clients/:id"
           element={
             <ProtectedRoute>
-              <AppShell><ClientDetails /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><ClientDetails /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -67,7 +67,7 @@ export default function App() {
           path="/clients/new"
           element={
             <ProtectedRoute>
-              <AppShell><NewClient /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><NewClient /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -76,7 +76,7 @@ export default function App() {
           path="/applications/new"
           element={
             <ProtectedRoute>
-              <AppShell><NewApplication /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><NewApplication /></AppShell>
             </ProtectedRoute>
           }
         />
@@ -85,7 +85,7 @@ export default function App() {
           path="/admin"
           element={
             <ProtectedRoute>
-              <AppShell><Admin /></AppShell>
+              <AppShell colorMode={colorMode} onToggleColorMode={onToggleColorMode}><Admin /></AppShell>
             </ProtectedRoute>
           }
         />

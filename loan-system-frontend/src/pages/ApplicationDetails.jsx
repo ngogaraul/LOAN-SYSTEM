@@ -3,13 +3,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import api from "../api/client";
 import { useSnackbar } from "notistack";
 import { getAuth } from "../auth/auth";
+import { calculateTermMonths } from "../utils/application";
 
 import {
   Box, Typography, Grid, Paper, Stack, Button, Chip, Divider,
   CircularProgress, Alert, Table, TableHead, TableRow, TableCell,
   TableBody, TextField, MenuItem, Tabs, Tab, Dialog, DialogTitle,
-  DialogContent, DialogActions, Tooltip, IconButton
+  DialogContent, DialogActions, Tooltip, IconButton, TableContainer,
+  useMediaQuery
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -42,10 +45,25 @@ function fmtDate(x) {
   return String(x).replace("T", " ").replace(".000Z", "");
 }
 
+function DetailRow({ label, value }) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="baseline">
+      <Typography variant="body2" color="text.secondary" sx={{ minWidth: 110 }}>
+        {label}
+      </Typography>
+      <Typography variant="body1" sx={{ fontWeight: 600, wordBreak: "break-word" }}>
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 export default function ApplicationDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const auth = getAuth();
   const role = auth?.role || "ANALYST";
@@ -61,7 +79,7 @@ export default function ApplicationDetails() {
 
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ amount_requested: "", purpose: "", term_requested: "" });
+  const [editForm, setEditForm] = useState({ amount_requested: "", payment_plan: "", purpose: "", term_requested: "" });
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Delete dialog
@@ -96,6 +114,7 @@ export default function ApplicationDetails() {
   const fin = data?.financials;
   const score = data?.latest_score;
   const decisionsHistory = data?.decisions || [];
+  const displayPaymentPlan = app?.payment_plan ?? fin?.payment_plan ?? null;
 
   // normalize top factors
   const topFactors = useMemo(() => {
@@ -175,8 +194,9 @@ export default function ApplicationDetails() {
   function openEdit() {
     setEditForm({
       amount_requested: app?.amount_requested ?? "",
+      payment_plan: app?.payment_plan ?? "",
       purpose: app?.purpose ?? "",
-      term_requested: app?.term_requested ?? "",
+      term_requested: calculateTermMonths(app?.amount_requested, app?.payment_plan) || (app?.term_requested ?? ""),
     });
     setEditOpen(true);
   }
@@ -186,6 +206,7 @@ export default function ApplicationDetails() {
     try {
       await api.put(`/applications/${id}`, {
         amount_requested: Number(editForm.amount_requested),
+        payment_plan: Number(editForm.payment_plan),
         purpose: String(editForm.purpose || ""),
         term_requested: Number(editForm.term_requested),
       });
@@ -227,8 +248,14 @@ export default function ApplicationDetails() {
   if (!app) return <Alert severity="error">Application not found or data missing.</Alert>;
 
   return (
-    <Box>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
+    <Box sx={{ width: "100%", maxWidth: "100%", overflowX: "hidden" }}>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        alignItems={{ xs: "flex-start", md: "center" }}
+        justifyContent="space-between"
+        spacing={2}
+        sx={{ mb: 2 }}
+      >
         <Box>
           <Typography variant="h5">
             Application #{app.id}{" "}
@@ -239,7 +266,7 @@ export default function ApplicationDetails() {
           </Typography>
         </Box>
 
-        <Stack direction="row" spacing={1}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
           <Button variant="outlined" onClick={load} disabled={actionLoading}>Refresh</Button>
 
           <Button variant="contained" onClick={scoreNow} disabled={actionLoading || isFinalized}>
@@ -270,7 +297,7 @@ export default function ApplicationDetails() {
         </Alert>
       )}
 
-      <Paper sx={{ mb: 2 }}>
+      <Paper sx={{ mb: 2, overflow: "hidden" }}>
         <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
           <Tab label="Overview" />
           <Tab label="Model Output" />
@@ -281,37 +308,69 @@ export default function ApplicationDetails() {
       {/* OVERVIEW */}
       {tab === 0 && (
         <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2 }}>
+          <Grid item xs={12} lg={5}>
+            <Paper sx={{ p: { xs: 1.5, sm: 2.5 }, height: "100%" }}>
               <Typography variant="h6">Client</Typography>
               <Divider sx={{ my: 1 }} />
-              <Typography><b>Account:</b> {client?.account || "-"}</Typography>
-              <Typography><b>Name:</b> {client?.full_name || "-"}</Typography>
-              <Typography><b>Phone:</b> {client?.phone || "-"}</Typography>
+              <Stack spacing={1.25}>
+                <DetailRow label="Account" value={client?.account || "-"} />
+                <DetailRow label="Name" value={client?.full_name || "-"} />
+                <DetailRow label="Phone" value={client?.phone || "-"} />
+                <DetailRow label="Status" value={client?.status || "-"} />
+              </Stack>
             </Paper>
           </Grid>
 
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 2 }}>
+          <Grid item xs={12} lg={7}>
+            <Paper sx={{ p: { xs: 1.5, sm: 2.5 }, height: "100%" }}>
               <Typography variant="h6">Application</Typography>
               <Divider sx={{ my: 1 }} />
-              <Typography><b>Amount:</b> {fmtMoney(app.amount_requested)}</Typography>
-              <Typography><b>Term:</b> {app.term_requested ?? "-"}</Typography>
-              <Typography><b>Purpose:</b> {app.purpose || "-"}</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Requested Amount</Typography>
+                    <Typography variant="h6">{fmtMoney(app.amount_requested)}</Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Current Payment Plan</Typography>
+                    <Typography variant="h6">{fmtMoney(displayPaymentPlan)}</Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Creditline</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>{app.creditline || "-"}</Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Requested Term</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>{app.term_requested ?? "-"}</Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12}>
+                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Purpose</Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>{app.purpose || "-"}</Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
             </Paper>
           </Grid>
 
           <Grid item xs={12}>
-            <Paper sx={{ p: 2 }}>
+            <Paper sx={{ p: { xs: 1.5, sm: 2.5 } }}>
               <Typography variant="h6">Financials</Typography>
               <Divider sx={{ my: 1 }} />
               <Grid container spacing={2}>
-                <Grid item xs={12} sm={4}><Typography><b>Outstanding:</b> {fmtMoney(fin?.outstanding)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Payment Plan:</b> {fmtMoney(fin?.payment_plan)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Salary:</b> {fmtMoney(fin?.salary)}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Duration:</b> {fin?.duration ?? "-"}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Remaining:</b> {fin?.remaining_period ?? "-"}</Typography></Grid>
-                <Grid item xs={12} sm={4}><Typography><b>Start:</b> {fmtDate(fin?.start_date)}</Typography></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Outstanding" value={fmtMoney(fin?.outstanding)} /></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Payment Plan" value={fmtMoney(fin?.payment_plan)} /></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Salary" value={fmtMoney(fin?.salary)} /></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Duration" value={fin?.duration ?? "-"} /></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Remaining" value={fin?.remaining_period ?? "-"} /></Grid>
+                <Grid item xs={12} sm={6} md={4}><DetailRow label="Start" value={fmtDate(fin?.start_date)} /></Grid>
               </Grid>
             </Paper>
           </Grid>
@@ -340,24 +399,26 @@ export default function ApplicationDetails() {
               {topFactors.length === 0 ? (
                 <Alert severity="info">No explainability factors available.</Alert>
               ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Feature</TableCell>
-                      <TableCell align="right">Impact</TableCell>
-                      <TableCell>Direction</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {topFactors.map((f, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>{f.feature}</TableCell>
-                        <TableCell align="right">{Number(f.impact).toFixed(3)}</TableCell>
-                        <TableCell>{f.direction || (f.impact >= 0 ? "increases_risk" : "decreases_risk")}</TableCell>
+                <TableContainer sx={{ width: "100%", overflowX: "auto" }}>
+                  <Table size="small" sx={{ minWidth: isMobile ? 520 : 0 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Feature</TableCell>
+                        <TableCell align="right">Impact</TableCell>
+                        <TableCell>Direction</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {topFactors.map((f, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>{f.feature}</TableCell>
+                          <TableCell align="right">{Number(f.impact).toFixed(3)}</TableCell>
+                          <TableCell>{f.direction || (f.impact >= 0 ? "increases_risk" : "decreases_risk")}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </>
           )}
@@ -409,32 +470,34 @@ export default function ApplicationDetails() {
               {decisionsHistory.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">No decisions yet.</Typography>
               ) : (
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Date</TableCell>
-                      <TableCell>Decision</TableCell>
-                      <TableCell>Analyst</TableCell>
-                      <TableCell>Comment</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {decisionsHistory.map((d) => (
-                      <TableRow key={d.id}>
-                        <TableCell>{fmtDate(d.decided_at)}</TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            label={d.final_decision}
-                            color={d.final_decision === "APPROVE" ? "success" : d.final_decision === "REJECT" ? "error" : "warning"}
-                          />
-                        </TableCell>
-                        <TableCell>{d.analyst?.name || "-"}</TableCell>
-                        <TableCell>{d.comment || "-"}</TableCell>
+                <TableContainer sx={{ width: "100%", overflowX: "auto" }}>
+                  <Table size="small" sx={{ minWidth: isMobile ? 640 : 0 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Date</TableCell>
+                        <TableCell>Decision</TableCell>
+                        <TableCell>Analyst</TableCell>
+                        <TableCell>Comment</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {decisionsHistory.map((d) => (
+                        <TableRow key={d.id}>
+                          <TableCell>{fmtDate(d.decided_at)}</TableCell>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={d.final_decision}
+                              color={d.final_decision === "APPROVE" ? "success" : d.final_decision === "REJECT" ? "error" : "warning"}
+                            />
+                          </TableCell>
+                          <TableCell>{d.analyst?.name || "-"}</TableCell>
+                          <TableCell>{d.comment || "-"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
               )}
             </Paper>
           </Grid>
@@ -449,7 +512,14 @@ export default function ApplicationDetails() {
             <TextField
               label="Amount Requested"
               value={editForm.amount_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, amount_requested: e.target.value }))}
+              onChange={(e) => setEditForm(p => {
+                const amountRequested = e.target.value;
+                return {
+                  ...p,
+                  amount_requested: amountRequested,
+                  term_requested: calculateTermMonths(amountRequested, p.payment_plan),
+                };
+              })}
             />
             <TextField
               label="Purpose"
@@ -457,9 +527,22 @@ export default function ApplicationDetails() {
               onChange={(e) => setEditForm(p => ({ ...p, purpose: e.target.value }))}
             />
             <TextField
+              label="Payment Plan"
+              value={editForm.payment_plan}
+              onChange={(e) => setEditForm(p => {
+                const paymentPlan = e.target.value;
+                return {
+                  ...p,
+                  payment_plan: paymentPlan,
+                  term_requested: calculateTermMonths(p.amount_requested, paymentPlan),
+                };
+              })}
+            />
+            <TextField
               label="Term Requested (months)"
               value={editForm.term_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, term_requested: e.target.value }))}
+              InputProps={{ readOnly: true }}
+              helperText="Auto-calculated from Amount Requested and Payment Plan."
             />
           </Stack>
         </DialogContent>

@@ -24,6 +24,29 @@ app = Sanic("loan_system_core")
 CORS(app, resources={r"/*": {"origins": ["http://localhost:5173"]}}, supports_credentials=False)
 
 
+@app.before_server_start
+async def ensure_schema(app_, loop):
+    try:
+        async with SessionLocal() as session:
+            await session.execute(text("""
+                ALTER TABLE loan_applications
+                ADD COLUMN IF NOT EXISTS payment_plan DOUBLE PRECISION DEFAULT 0
+            """))
+            await session.execute(text("""
+                UPDATE loan_applications la
+                SET payment_plan = cf.payment_plan
+                FROM creditline_financials cf
+                WHERE la.client_id = cf.client_id
+                  AND la.creditline = cf.creditline
+                  AND COALESCE(la.payment_plan, 0) = 0
+            """))
+            await session.commit()
+        logger.info("Schema check complete.")
+    except Exception:
+        logger.exception("Schema check failed during startup.")
+        raise
+
+
 @app.get("/health")
 async def health(request):
     logger.info("Health check endpoint called.")

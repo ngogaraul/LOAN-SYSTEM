@@ -71,6 +71,7 @@ class LoanApplication(Base):
     creditline: Mapped[str] = mapped_column(String(64), unique=True, index=True, default="")
 
     amount_requested: Mapped[float] = mapped_column(Float, default=0)
+    payment_plan: Mapped[float] = mapped_column(Float, default=0)
     purpose: Mapped[str] = mapped_column(String(120), default="")
     term_requested: Mapped[int] = mapped_column(Integer, default=0)
 

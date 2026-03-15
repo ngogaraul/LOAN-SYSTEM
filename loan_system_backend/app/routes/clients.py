@@ -1,12 +1,10 @@
 from sanic import Blueprint
 from sanic.response import json
-from sqlalchemy import select
+from sqlalchemy import select, desc, or_
 
 from app.db import SessionLocal
-from app.models import Client, ClientFinancial, LoanApplication
+from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial
 from app.auth_guard import require_auth
-from app.models import CreditlineFinancial
-from sqlalchemy import desc
 
 bp = Blueprint("clients", url_prefix="/clients")
 
@@ -23,9 +21,12 @@ def _to_float(v, default=None):
 
 
 def _role_upper(request):
-    # request.ctx.user expected like {"id":..., "role":...}
     r = (getattr(request.ctx, "user", None) or {}).get("role", "")
     return str(r).strip().upper()
+
+
+def _status_upper(v: str) -> str:
+    return str(v or "").strip().upper()
 
 
 @bp.post("/")
@@ -35,6 +36,10 @@ async def create_client(request):
     account = (data.get("account") or "").strip()
     full_name = (data.get("full_name") or "").strip()
     phone = (data.get("phone") or "").strip()
+    status = _status_upper(data.get("status") or "ACTIVE")
+
+    if status not in {"ACTIVE", "SUSPENDED", "CLOSED"}:
+        status = "ACTIVE"
 
     if not account:
         return json({"error": "account is required"}, status=400)
@@ -44,7 +49,12 @@ async def create_client(request):
         if existing:
             return json({"error": "client already exists", "client_id": existing.id}, status=409)
 
-        client = Client(account=account, full_name=full_name, phone=phone)
+        client = Client(
+            account=account,
+            full_name=full_name,
+            phone=phone,
+            status=status
+        )
         session.add(client)
         await session.commit()
         await session.refresh(client)
@@ -53,31 +63,85 @@ async def create_client(request):
         session.add(fin)
         await session.commit()
 
-        return json({"client_id": client.id, "account": client.account})
+        return json({
+            "client_id": client.id,
+            "account": client.account,
+            "status": client.status
+        })
 
 
 @bp.get("/")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def search_clients(request):
     q = (request.args.get("search") or "").strip()
+    status = _status_upper(request.args.get("status") or "")
+
+    try:
+        page = int(request.args.get("page") or 1)
+        page_size = int(request.args.get("page_size") or 10)
+    except ValueError:
+        return json({"error": "page and page_size must be integers"}, status=400)
+
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 10
+    if page_size > 100:
+        page_size = 100
+
+    offset = (page - 1) * page_size
 
     async with SessionLocal() as session:
-        if not q:
-            rows = (await session.execute(select(Client).order_by(Client.id.desc()).limit(50))).scalars().all()
-        else:
-            rows = (await session.execute(
-                select(Client)
-                .where((Client.account.ilike(f"%{q}%")) | (Client.full_name.ilike(f"%{q}%")))
-                .order_by(Client.id.desc())
-                .limit(50)
-            )).scalars().all()
+        stmt = select(Client)
 
-        return json([{
-            "id": c.id,
-            "account": c.account,
-            "full_name": c.full_name,
-            "phone": c.phone
-        } for c in rows])
+        if status:
+            stmt = stmt.where(Client.status == status)
+
+        if q:
+            stmt = stmt.where(
+                or_(
+                    Client.account.ilike(f"%{q}%"),
+                    Client.full_name.ilike(f"%{q}%")
+                )
+            )
+
+        total_stmt = select(Client)
+
+        if status:
+            total_stmt = total_stmt.where(Client.status == status)
+
+        if q:
+            total_stmt = total_stmt.where(
+                or_(
+                    Client.account.ilike(f"%{q}%"),
+                    Client.full_name.ilike(f"%{q}%")
+                )
+            )
+
+        total_rows = (await session.execute(total_stmt)).scalars().all()
+        total = len(total_rows)
+
+        rows = (
+            await session.execute(
+                stmt.order_by(Client.id.desc()).offset(offset).limit(page_size)
+            )
+        ).scalars().all()
+
+        return json({
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "items": [
+                {
+                    "id": c.id,
+                    "account": c.account,
+                    "full_name": c.full_name,
+                    "phone": c.phone,
+                    "status": getattr(c, "status", "ACTIVE")
+                }
+                for c in rows
+            ]
+        })
 
 
 @bp.get("/<client_id:int>")
@@ -95,6 +159,7 @@ async def get_client(request, client_id: int):
             "account": client.account,
             "full_name": client.full_name,
             "phone": client.phone,
+            "status": getattr(client, "status", "ACTIVE"),
             "financials": None if not fin else {
                 "outstanding": fin.outstanding,
                 "payment_plan": fin.payment_plan,
@@ -110,7 +175,6 @@ async def get_client(request, client_id: int):
         })
 
 
-# ✅ NEW: edit client profile (name/phone/account if you want)
 @bp.put("/<client_id:int>")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def update_client(request, client_id: int):
@@ -137,7 +201,8 @@ async def update_client(request, client_id: int):
                 "id": client.id,
                 "account": client.account,
                 "full_name": client.full_name,
-                "phone": client.phone
+                "phone": client.phone,
+                "status": getattr(client, "status", "ACTIVE")
             }
         })
 
@@ -175,7 +240,6 @@ async def update_financials(request, client_id: int):
             fin.salary = _to_float(data.get("salary"), fin.salary) or 0
         if "duration" in data:
             fin.duration = _to_float(data.get("duration"), fin.duration) or 0
-
         if "start_date" in data:
             fin.start_date = str(data.get("start_date") or "").strip()
 
@@ -199,7 +263,33 @@ async def update_financials(request, client_id: int):
         })
 
 
-# ✅ NEW: delete client (ADMIN only)
+@bp.patch("/<client_id:int>/status")
+@require_auth(roles=["ADMIN"])
+async def change_client_status(request, client_id: int):
+    data = request.json or {}
+    new_status = _status_upper(data.get("status"))
+
+    if new_status not in {"ACTIVE", "SUSPENDED", "CLOSED"}:
+        return json({
+            "error": "invalid_status",
+            "message": "status must be ACTIVE, SUSPENDED, or CLOSED"
+        }, status=400)
+
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        client.status = new_status
+        await session.commit()
+
+        return json({
+            "message": "client status updated",
+            "client_id": client_id,
+            "status": client.status
+        })
+
+
 @bp.delete("/<client_id:int>")
 @require_auth(roles=["ADMIN"])
 async def delete_client(request, client_id: int):
@@ -208,7 +298,6 @@ async def delete_client(request, client_id: int):
         if not client:
             return json({"error": "client not found"}, status=404)
 
-        # safety: don’t allow deleting a client with applications
         has_app = await session.scalar(
             select(LoanApplication.id).where(LoanApplication.client_id == client_id).limit(1)
         )
@@ -221,6 +310,12 @@ async def delete_client(request, client_id: int):
         fin = await session.scalar(select(ClientFinancial).where(ClientFinancial.client_id == client_id))
         if fin:
             await session.delete(fin)
+
+        creditlines = (await session.execute(
+            select(CreditlineFinancial).where(CreditlineFinancial.client_id == client_id)
+        )).scalars().all()
+        for r in creditlines:
+            await session.delete(r)
 
         await session.delete(client)
         await session.commit()
@@ -238,9 +333,21 @@ async def list_client_creditlines(request, client_id: int):
             .order_by(desc(CreditlineFinancial.id))
         )).scalars().all()
 
+        linked_apps = (await session.execute(
+            select(LoanApplication.id, LoanApplication.creditline)
+            .where(LoanApplication.client_id == client_id)
+        )).all()
+        linked_by_creditline = {
+            str(creditline or "").strip(): app_id
+            for app_id, creditline in linked_apps
+            if str(creditline or "").strip()
+        }
+
         return json([{
             "id": r.id,
             "creditline": r.creditline,
+            "application_id": linked_by_creditline.get(str(r.creditline or "").strip()),
+            "is_available": str(r.creditline or "").strip() not in linked_by_creditline,
             "outstanding": r.outstanding,
             "payment_plan": r.payment_plan,
             "remaining_period": r.remaining_period,

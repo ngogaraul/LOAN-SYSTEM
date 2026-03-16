@@ -1,6 +1,6 @@
 from sanic import Blueprint
 from sanic.response import json
-from sqlalchemy import select, desc, or_
+from sqlalchemy import select, desc, or_, func
 
 from app.db import SessionLocal
 from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial
@@ -27,6 +27,33 @@ def _role_upper(request):
 
 def _status_upper(v: str) -> str:
     return str(v or "").strip().upper()
+
+
+def _is_orphan_shell_creditline(row, linked_creditline_values: set[str]) -> bool:
+    creditline_value = str(getattr(row, "creditline", "") or "").strip()
+    if not creditline_value or creditline_value in linked_creditline_values:
+        return False
+
+    numeric_fields = [
+        "outstanding",
+        "principal_arrears",
+        "interest_arrears",
+        "payment_plan",
+        "interest_rate",
+        "days_in_arrears",
+        "duration",
+        "remaining_period",
+        "periodicity",
+        "class_value",
+        "compulsory_saving",
+        "voluntary_saving",
+        "salary",
+    ]
+
+    if any((_to_float(getattr(row, field, 0), 0) or 0) != 0 for field in numeric_fields):
+        return False
+
+    return not str(getattr(row, "start_date", "") or "").strip()
 
 
 @bp.post("/")
@@ -105,7 +132,7 @@ async def search_clients(request):
                 )
             )
 
-        total_stmt = select(Client)
+        total_stmt = select(func.count(Client.id))
 
         if status:
             total_stmt = total_stmt.where(Client.status == status)
@@ -118,8 +145,7 @@ async def search_clients(request):
                 )
             )
 
-        total_rows = (await session.execute(total_stmt)).scalars().all()
-        total = len(total_rows)
+        total = int((await session.scalar(total_stmt)) or 0)
 
         rows = (
             await session.execute(
@@ -342,6 +368,12 @@ async def list_client_creditlines(request, client_id: int):
             for app_id, creditline in linked_apps
             if str(creditline or "").strip()
         }
+        linked_creditline_values = set(linked_by_creditline.keys())
+
+        visible_rows = [
+            r for r in rows
+            if not _is_orphan_shell_creditline(r, linked_creditline_values)
+        ]
 
         return json([{
             "id": r.id,
@@ -350,6 +382,7 @@ async def list_client_creditlines(request, client_id: int):
             "is_available": str(r.creditline or "").strip() not in linked_by_creditline,
             "outstanding": r.outstanding,
             "payment_plan": r.payment_plan,
+            "interest_rate": r.interest_rate,
             "remaining_period": r.remaining_period,
             "periodicity": r.periodicity,
             "class_value": r.class_value,
@@ -361,4 +394,4 @@ async def list_client_creditlines(request, client_id: int):
             "days_in_arrears": r.days_in_arrears,
             "principal_arrears": r.principal_arrears,
             "interest_arrears": r.interest_arrears,
-        } for r in rows])
+        } for r in visible_rows])

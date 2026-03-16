@@ -1,7 +1,8 @@
 from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select, desc, asc, or_
-from datetime import datetime
+from sqlalchemy.orm import aliased
+import re
 
 from app.db import SessionLocal
 from app.models import (
@@ -23,13 +24,41 @@ def _slug_creditline_seed(value):
     return text[:16] or "CLIENT"
 
 
+def _build_formatted_creditline(seed, group_number, sequence_number):
+    return f"{seed}-{group_number:02d}-{sequence_number:03d}"
+
+
 async def _generate_creditline(session, client):
     base = _slug_creditline_seed(getattr(client, "account", None) or getattr(client, "id", None))
-    stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    pattern = re.compile(rf"^{re.escape(base)}-(\d{{2}})-(\d{{3}})$")
 
-    for attempt in range(100):
-        suffix = f"-{attempt}" if attempt else ""
-        candidate = f"AUTO-{base}-{stamp}{suffix}"
+    existing_creditline_rows = (await session.execute(
+        select(CreditlineFinancial.creditline)
+        .where(CreditlineFinancial.client_id == getattr(client, "id", None))
+    )).scalars().all()
+    existing_application_rows = (await session.execute(
+        select(LoanApplication.creditline)
+        .where(LoanApplication.client_id == getattr(client, "id", None))
+    )).scalars().all()
+
+    max_group = 1
+    max_sequence = 0
+    for value in [*existing_creditline_rows, *existing_application_rows]:
+        match = pattern.match(str(value or "").strip())
+        if not match:
+            continue
+        group_number = int(match.group(1))
+        sequence_number = int(match.group(2))
+        if group_number > max_group or (group_number == max_group and sequence_number > max_sequence):
+            max_group = group_number
+            max_sequence = sequence_number
+
+    for _ in range(1000):
+        max_sequence += 1
+        if max_sequence > 999:
+            max_group += 1
+            max_sequence = 1
+        candidate = _build_formatted_creditline(base, max_group, max_sequence)
         existing = await session.scalar(
             select(LoanApplication.id).where(LoanApplication.creditline == candidate).limit(1)
         )
@@ -104,14 +133,41 @@ def _resolved_payment_plan(app_, linked_creditline=None, fin=None, creditlines=N
     return None
 
 
+def _is_application_owned_creditline(row):
+    if not row:
+        return False
+
+    numeric_fields = [
+        "outstanding",
+        "principal_arrears",
+        "interest_arrears",
+        "payment_plan",
+        "days_in_arrears",
+        "duration",
+        "remaining_period",
+        "periodicity",
+        "class_value",
+        "compulsory_saving",
+        "voluntary_saving",
+        "salary",
+    ]
+
+    if any(_to_float(getattr(row, field, 0), 0.0) != 0 for field in numeric_fields):
+        return False
+
+    return not str(getattr(row, "start_date", "") or "").strip()
+
+
 @bp.post("/")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def create_application(request):
     data = request.json or {}
     client_id = data.get("client_id")
     creditline = (data.get("creditline") or "").strip()
+    creditline_mode = str(data.get("creditline_mode") or "").strip().lower()
     amount_requested = data.get("amount_requested", 0)
     payment_plan = data.get("payment_plan", 0)
+    interest_rate = _to_float(data.get("interest_rate"), 0.0)
     purpose = data.get("purpose", "")
     term_requested = data.get("term_requested", 0)
 
@@ -133,22 +189,38 @@ async def create_application(request):
             .where(LoanApplication.client_id == int(client_id))
         )).scalars().all())
 
-        if not creditline:
-            available_creditline = next(
-                (
-                    (row.creditline or "").strip()
-                    for row in client_creditlines
-                    if (row.creditline or "").strip() and (row.creditline or "").strip() not in used_creditlines
-                ),
-                "",
-            )
+        available_rows = [
+            row for row in client_creditlines
+            if (row.creditline or "").strip() and (row.creditline or "").strip() not in used_creditlines
+        ]
+        available_creditline = next(
+            ((row.creditline or "").strip() for row in available_rows),
+            "",
+        )
+
+        if creditline_mode == "existing":
+            if not creditline:
+                return json({"error": "creditline is required"}, status=400)
+            if creditline not in {(row.creditline or "").strip() for row in available_rows}:
+                return json({
+                    "error": "creditline_unavailable",
+                    "message": "Selected creditline is not available for a new application.",
+                }, status=409)
+        elif creditline_mode == "new":
+            if interest_rate <= 0:
+                return json({
+                    "error": "interest_rate is required",
+                    "message": "Interest rate must be greater than 0 when creating a new creditline.",
+                }, status=400)
+            if not creditline:
+                creditline = await _generate_creditline(session, client)
+        elif not creditline:
             if available_creditline:
                 creditline = available_creditline
+                creditline_mode = "existing"
             else:
                 creditline = await _generate_creditline(session, client)
-                new_creditline = CreditlineFinancial(client_id=int(client_id), creditline=creditline)
-                session.add(new_creditline)
-                client_creditlines = [new_creditline]
+                creditline_mode = "new"
 
         existing = await session.scalar(
             select(LoanApplication).where(LoanApplication.creditline == creditline)
@@ -164,7 +236,14 @@ async def create_application(request):
             None,
         )
         if not matched_creditline:
-            session.add(CreditlineFinancial(client_id=int(client_id), creditline=creditline))
+            matched_creditline = CreditlineFinancial(
+                client_id=int(client_id),
+                creditline=creditline,
+                interest_rate=interest_rate if creditline_mode == "new" else 0,
+            )
+            session.add(matched_creditline)
+        elif creditline_mode == "new" and interest_rate > 0:
+            matched_creditline.interest_rate = interest_rate
 
         app_ = LoanApplication(
             client_id=int(client_id),
@@ -184,6 +263,7 @@ async def create_application(request):
             "client_id": app_.client_id,
             "creditline": app_.creditline,
             "payment_plan": app_.payment_plan,
+            "interest_rate": getattr(matched_creditline, "interest_rate", 0),
             "status": app_.status,
         })
 
@@ -327,15 +407,16 @@ async def application_details(request, app_id: int):
             .limit(1)
         )
 
+        analyst_user = aliased(User)
         decision_rows = (await session.execute(
-            select(Decision)
+            select(Decision, analyst_user)
+            .outerjoin(analyst_user, analyst_user.id == Decision.analyst_id)
             .where(Decision.application_id == app_id)
             .order_by(desc(Decision.decided_at))
-        )).scalars().all()
+        )).all()
 
         decisions = []
-        for d in decision_rows:
-            analyst = await session.get(User, d.analyst_id)
+        for d, analyst in decision_rows:
             decisions.append({
                 "id": d.id,
                 "final_decision": d.final_decision,
@@ -459,6 +540,14 @@ async def delete_application(request, app_id: int):
         if not app_:
             return json({"error": "application not found"}, status=404)
 
+        linked_creditline = await session.scalar(
+            select(CreditlineFinancial)
+            .where(CreditlineFinancial.client_id == app_.client_id)
+            .where(CreditlineFinancial.creditline == app_.creditline)
+            .order_by(desc(CreditlineFinancial.id))
+            .limit(1)
+        )
+
         if app_.status in {"APPROVED", "REJECTED"}:
             return json({
                 "error": "cannot_delete_finalized",
@@ -490,6 +579,21 @@ async def delete_application(request, app_id: int):
             await session.delete(d)
 
         await session.delete(app_)
+
+        remaining_app_for_creditline = await session.scalar(
+            select(LoanApplication.id)
+            .where(LoanApplication.client_id == app_.client_id)
+            .where(LoanApplication.creditline == app_.creditline)
+            .where(LoanApplication.id != app_id)
+            .limit(1)
+        )
+        if (
+            linked_creditline
+            and not remaining_app_for_creditline
+            and _is_application_owned_creditline(linked_creditline)
+        ):
+            await session.delete(linked_creditline)
+
         await session.commit()
 
         return json({"message": "application deleted", "application_id": app_id})

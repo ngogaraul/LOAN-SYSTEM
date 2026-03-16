@@ -24,12 +24,19 @@ class FakeSession:
 
 
 class AuthRouteTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        auth._LOGIN_ATTEMPTS.clear()
+
     def parse_response(self, response):
         return json.loads(response.body)
 
     async def test_login_returns_token_for_valid_credentials(self):
         user = SimpleNamespace(id=4, role="ADMIN", password_hash="hash")
-        request = SimpleNamespace(json={"email": "admin@example.com", "password": "secret"})
+        request = SimpleNamespace(
+            json={"email": "admin@example.com", "password": "secret"},
+            headers={},
+            remote_addr="127.0.0.1",
+        )
 
         with patch("app.routes.auth.SessionLocal", return_value=FakeSession(user=user)):
             with patch("app.routes.auth.verify_password", return_value=True):
@@ -43,7 +50,11 @@ class AuthRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["user_id"], 4)
 
     async def test_login_rejects_invalid_credentials(self):
-        request = SimpleNamespace(json={"email": "missing@example.com", "password": "bad"})
+        request = SimpleNamespace(
+            json={"email": "missing@example.com", "password": "bad"},
+            headers={},
+            remote_addr="127.0.0.1",
+        )
 
         with patch("app.routes.auth.SessionLocal", return_value=FakeSession(user=None)):
             response = await auth.login(request)
@@ -51,3 +62,21 @@ class AuthRouteTests(unittest.IsolatedAsyncioTestCase):
         payload = self.parse_response(response)
         self.assertEqual(response.status, 401)
         self.assertEqual(payload["error"], "invalid_credentials")
+
+    async def test_login_rate_limits_after_repeated_failures(self):
+        request = SimpleNamespace(
+            json={"email": "missing@example.com", "password": "bad"},
+            headers={},
+            remote_addr="127.0.0.1",
+        )
+
+        with patch("app.routes.auth.SessionLocal", return_value=FakeSession(user=None)):
+            for _ in range(auth.LOGIN_RATE_LIMIT_MAX_ATTEMPTS):
+                response = await auth.login(request)
+                self.assertEqual(response.status, 401)
+
+            limited_response = await auth.login(request)
+
+        payload = self.parse_response(limited_response)
+        self.assertEqual(limited_response.status, 429)
+        self.assertEqual(payload["error"], "too_many_attempts")

@@ -113,29 +113,18 @@ run("calculateTermMonths returns empty string for invalid values", () => {
   assert.equal(calculateTermMonths(-1, 100), "");
 });
 
-run("buildDefaultCreditline uses client account when present", () => {
-  const originalNow = Date.now;
-  Date.now = () => 1712345678901;
-
-  try {
-    assert.equal(
-      buildDefaultCreditline({ account: "5226274-02/004" }),
-      "AUTO-522627402004-45678901",
-    );
-  } finally {
-    Date.now = originalNow;
-  }
+run("buildDefaultCreditline follows the client creditline format", () => {
+  assert.equal(
+    buildDefaultCreditline(
+      { account: "5000044" },
+      [{ creditline: "5000044-01-024" }],
+    ),
+    "5000044-01-025",
+  );
 });
 
 run("buildDefaultCreditline falls back to client id when account is missing", () => {
-  const originalNow = Date.now;
-  Date.now = () => 1700000012345;
-
-  try {
-    assert.equal(buildDefaultCreditline({ id: 44 }), "AUTO-44-00012345");
-  } finally {
-    Date.now = originalNow;
-  }
+  assert.equal(buildDefaultCreditline({ id: 44 }), "44-01-001");
 });
 
 if (!process.exitCode) {

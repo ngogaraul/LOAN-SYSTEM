@@ -209,6 +209,43 @@ class ApplicationsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(payload["payment_plan"], 45000)
 
+    async def test_create_application_with_new_creditline_persists_interest_rate(self):
+        client = SimpleNamespace(id=8, account="90001")
+        session = FakeSession(
+            get_map={("Client", 8): client},
+            execute_map={
+                "FROM creditline_financials": [],
+                "SELECT loan_applications.creditline": [],
+            },
+            scalar_map={
+                "FROM loan_applications ": None,
+                "SELECT loan_applications.id": None,
+            },
+        )
+
+        request = make_request(
+            json_body={
+                "client_id": 8,
+                "creditline_mode": "new",
+                "creditline": "90001-NEW-01",
+                "amount_requested": 1000000,
+                "payment_plan": 200000,
+                "interest_rate": 18,
+                "purpose": "school fees",
+                "term_requested": 5,
+            }
+        )
+
+        with patch("app.routes.applications.SessionLocal", return_value=session):
+            response = await applications.create_application(request)
+
+        payload = self.parse_response(response)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["interest_rate"], 18)
+
+        created_creditline = next(obj for obj in session.added if obj.__class__.__name__ == "CreditlineFinancial")
+        self.assertEqual(created_creditline.interest_rate, 18)
+
     async def test_update_application_updates_payment_plan_and_term(self):
         app_ = SimpleNamespace(
             id=12,
@@ -241,3 +278,50 @@ class ApplicationsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(app_.purpose, "new purpose")
         self.assertEqual(app_.term_requested, 8)
         self.assertEqual(session.commit_count, 1)
+
+    async def test_delete_application_removes_empty_generated_creditline(self):
+        app_ = SimpleNamespace(
+            id=13,
+            client_id=7,
+            creditline="AUTO-5226274-01",
+            status="SUBMITTED",
+        )
+        linked_creditline = SimpleNamespace(
+            id=21,
+            client_id=7,
+            creditline="AUTO-5226274-01",
+            outstanding=0,
+            principal_arrears=0,
+            interest_arrears=0,
+            payment_plan=0,
+            interest_rate=18,
+            days_in_arrears=0,
+            duration=0,
+            remaining_period=0,
+            periodicity=0,
+            class_value=0,
+            compulsory_saving=0,
+            voluntary_saving=0,
+            salary=0,
+            start_date="",
+        )
+        session = FakeSession(
+            get_map={("LoanApplication", 13): app_},
+            execute_map={
+                "FROM credit_scores": [],
+                "FROM decisions": [],
+            },
+            scalar_map={
+                "FROM creditline_financials": linked_creditline,
+                "SELECT loan_applications.id": None,
+            },
+        )
+
+        with patch("app.routes.applications.SessionLocal", return_value=session):
+            response = await applications.delete_application(make_request(), 13)
+
+        payload = self.parse_response(response)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["message"], "application deleted")
+        self.assertIn(app_, session.deleted)
+        self.assertIn(linked_creditline, session.deleted)

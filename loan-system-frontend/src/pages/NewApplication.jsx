@@ -13,7 +13,9 @@ import {
   Button,
   CircularProgress,
   MenuItem,
-  Alert
+  Alert,
+  ToggleButton,
+  ToggleButtonGroup
 } from "@mui/material";
 
 function useQuery() {
@@ -38,9 +40,10 @@ export default function NewApplication() {
 
   const [amount, setAmount] = useState("");
   const [paymentPlan, setPaymentPlan] = useState("");
+  const [interestRate, setInterestRate] = useState("");
   const [creditline, setCreditline] = useState("");
   const [creditlineOptions, setCreditlineOptions] = useState([]);
-  const [creditlineSource, setCreditlineSource] = useState("generated");
+  const [creditlineMode, setCreditlineMode] = useState("existing");
   const [purpose, setPurpose] = useState("");
   const [term, setTerm] = useState("");
 
@@ -132,7 +135,8 @@ export default function NewApplication() {
       if (!selectedClientId) {
         setCreditlineOptions([]);
         setCreditline("");
-        setCreditlineSource("generated");
+        setCreditlineMode("existing");
+        setInterestRate("");
         setCreditlineError("");
         return;
       }
@@ -143,21 +147,24 @@ export default function NewApplication() {
       try {
         const res = await api.get(`/clients/${selectedClientId}/creditlines`);
         const rows = Array.isArray(res.data) ? res.data : [];
-        const available = rows.filter((row) => row?.creditline && row?.is_available !== false);
+        const available = rows.filter((row) => row?.creditline);
 
         setCreditlineOptions(available);
 
-        if (available.length > 0) {
-          setCreditline(available[0].creditline);
-          setCreditlineSource("existing");
+        const firstAvailable = available.find((row) => row?.is_available !== false) || available[0];
+
+        if (firstAvailable) {
+          setCreditline(firstAvailable.creditline);
+          setCreditlineMode("existing");
+          setInterestRate("");
         } else {
-          setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }));
-          setCreditlineSource("generated");
+          setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }, rows));
+          setCreditlineMode("new");
         }
       } catch {
         setCreditlineOptions([]);
         setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }));
-        setCreditlineSource("generated");
+        setCreditlineMode("new");
         setCreditlineError("Failed to load client creditlines. A default creditline will be used.");
       } finally {
         setLoadingCreditlines(false);
@@ -190,6 +197,10 @@ export default function NewApplication() {
       nextErrors.creditline = "Creditline is required.";
     }
 
+    if (creditlineMode === "new" && (!interestRate || Number(interestRate) <= 0)) {
+      nextErrors.interestRate = "Interest rate must be greater than 0.";
+    }
+
     if (!paymentPlan || Number(paymentPlan) <= 0) {
       nextErrors.paymentPlan = "Payment plan must be greater than 0.";
     }
@@ -215,8 +226,10 @@ export default function NewApplication() {
       await api.post("/applications", {
         client_id: Number(selectedClientId),
         creditline: creditline.trim(),
+        creditline_mode: creditlineMode,
         amount_requested: Number(amount),
         payment_plan: Number(paymentPlan),
+        interest_rate: creditlineMode === "new" ? Number(interestRate) : 0,
         purpose: purpose.trim(),
         term_requested: Number(term),
       });
@@ -343,53 +356,95 @@ export default function NewApplication() {
 
               {selectedClientId ? (
                 <>
-                  {creditlineOptions.length > 0 ? (
+                  <Stack spacing={1}>
+                    <Typography variant="body2" color="text.secondary">
+                      Creditline Mode
+                    </Typography>
+                    <ToggleButtonGroup
+                      exclusive
+                      value={creditlineMode}
+                      onChange={(_, value) => {
+                        if (!value) return;
+                        setCreditlineMode(value);
+                        setFieldErrors((prev) => ({ ...prev, creditline: "", interestRate: "" }));
+
+                        if (value === "existing") {
+                          const firstAvailable = creditlineOptions.find((row) => row?.is_available !== false) || creditlineOptions[0];
+                          setCreditline(firstAvailable?.creditline || "");
+                          setInterestRate("");
+                        } else {
+                          setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }, creditlineOptions));
+                        }
+                      }}
+                      size="small"
+                    >
+                      <ToggleButton value="existing">Use Existing</ToggleButton>
+                      <ToggleButton value="new">Create New</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Stack>
+
+                  {creditlineMode === "existing" ? (
                     <TextField
                       select
-                      label="Creditline"
+                      label="Existing Creditline"
                       value={creditline}
                       onChange={(e) => {
                         setCreditline(e.target.value);
-                        setCreditlineSource("existing");
                         setFieldErrors((prev) => ({ ...prev, creditline: "" }));
                       }}
                       fullWidth
                       error={!!fieldErrors.creditline}
-                      helperText={
-                        fieldErrors.creditline ||
-                        "Available creditlines for this client."
-                      }
-                      disabled={loadingCreditlines}
+                      helperText={fieldErrors.creditline || "Choose one of the client's creditlines."}
+                      disabled={loadingCreditlines || creditlineOptions.length === 0}
                     >
-                      {creditlineOptions.map((option) => (
-                        <MenuItem key={option.id || option.creditline} value={option.creditline}>
-                          {option.creditline}
-                        </MenuItem>
-                      ))}
+                      {creditlineOptions.length === 0 ? (
+                        <MenuItem value="">No creditlines found</MenuItem>
+                      ) : (
+                        creditlineOptions.map((option) => (
+                          <MenuItem
+                            key={option.id || option.creditline}
+                            value={option.creditline}
+                            disabled={option.is_available === false}
+                          >
+                            {option.creditline}
+                            {option.is_available === false ? " (already linked)" : ""}
+                          </MenuItem>
+                        ))
+                      )}
                     </TextField>
                   ) : (
-                    <TextField
-                      label="Creditline"
-                      value={creditline}
-                      fullWidth
-                      InputProps={{ readOnly: true }}
-                      error={!!fieldErrors.creditline}
-                      helperText={
-                        fieldErrors.creditline ||
-                        "No existing creditline found. A default one will be created automatically."
-                      }
-                    />
+                    <>
+                      <TextField
+                        label="New Creditline"
+                        value={creditline}
+                        onChange={(e) => {
+                          setCreditline(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, creditline: "" }));
+                        }}
+                        fullWidth
+                        error={!!fieldErrors.creditline}
+                        helperText={fieldErrors.creditline || "A new creditline will be created for this application."}
+                      />
+                      <TextField
+                        label="Interest Rate"
+                        type="number"
+                        value={interestRate}
+                        onChange={(e) => {
+                          setInterestRate(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, interestRate: "" }));
+                        }}
+                        placeholder="18"
+                        fullWidth
+                        error={!!fieldErrors.interestRate}
+                        helperText={fieldErrors.interestRate || "Required when creating a new creditline."}
+                      />
+                    </>
                   )}
 
                   {creditlineError && (
                     <Alert severity="warning">{creditlineError}</Alert>
                   )}
 
-                  {creditlineSource === "generated" && !creditlineError && (
-                    <Alert severity="info">
-                      This client has no available creditline yet. The application will create and use `{creditline}`.
-                    </Alert>
-                  )}
                 </>
               ) : (
                 <Alert severity="info">

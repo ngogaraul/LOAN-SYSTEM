@@ -126,6 +126,7 @@ class CreditlineFinancial(Base):
     principal_arrears: Mapped[float] = mapped_column(Float, default=0)
     interest_arrears: Mapped[float] = mapped_column(Float, default=0)
     payment_plan: Mapped[float] = mapped_column(Float, default=0)
+    interest_rate: Mapped[float] = mapped_column(Float, default=0)
     days_in_arrears: Mapped[float] = mapped_column(Float, default=0)
 
     start_date: Mapped[str] = mapped_column(String(30), default="")

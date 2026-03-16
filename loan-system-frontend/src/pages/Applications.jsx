@@ -23,6 +23,17 @@ function statusColor(status) {
   return "default";
 }
 
+function calculateTermMonths(amount, paymentPlan) {
+  const parsedAmount = Number(amount);
+  const parsedPaymentPlan = Number(paymentPlan);
+
+  if (!parsedAmount || parsedAmount <= 0 || !parsedPaymentPlan || parsedPaymentPlan <= 0) {
+    return "";
+  }
+
+  return String(Math.ceil(parsedAmount / parsedPaymentPlan));
+}
+
 export default function Applications() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
@@ -42,7 +53,7 @@ export default function Applications() {
   // EDIT dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
-  const [editForm, setEditForm] = useState({ amount_requested: "", purpose: "", term_requested: "" });
+  const [editForm, setEditForm] = useState({ amount_requested: "", payment_plan: "", purpose: "", term_requested: "" });
   const [savingEdit, setSavingEdit] = useState(false);
 
   // DELETE dialog
@@ -95,8 +106,9 @@ export default function Applications() {
     setEditRow(row);
     setEditForm({
       amount_requested: row.amount_requested ?? "",
+      payment_plan: row.payment_plan ?? "",
       purpose: row.purpose ?? "",
-      term_requested: row.term_requested ?? "",
+      term_requested: calculateTermMonths(row.amount_requested, row.payment_plan) || (row.term_requested ?? ""),
     });
     setEditOpen(true);
   }
@@ -108,6 +120,7 @@ export default function Applications() {
     try {
       await api.put(`/applications/${editRow.id}`, {
         amount_requested: Number(editForm.amount_requested),
+        payment_plan: Number(editForm.payment_plan),
         purpose: String(editForm.purpose || ""),
         term_requested: Number(editForm.term_requested),
       });
@@ -261,7 +274,14 @@ export default function Applications() {
             <TextField
               label="Amount Requested"
               value={editForm.amount_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, amount_requested: e.target.value }))}
+              onChange={(e) => setEditForm(p => {
+                const amountRequested = e.target.value;
+                return {
+                  ...p,
+                  amount_requested: amountRequested,
+                  term_requested: calculateTermMonths(amountRequested, p.payment_plan),
+                };
+              })}
             />
             <TextField
               label="Purpose"
@@ -269,9 +289,22 @@ export default function Applications() {
               onChange={(e) => setEditForm(p => ({ ...p, purpose: e.target.value }))}
             />
             <TextField
+              label="Payment Plan"
+              value={editForm.payment_plan}
+              onChange={(e) => setEditForm(p => {
+                const paymentPlan = e.target.value;
+                return {
+                  ...p,
+                  payment_plan: paymentPlan,
+                  term_requested: calculateTermMonths(p.amount_requested, paymentPlan),
+                };
+              })}
+            />
+            <TextField
               label="Term Requested (months)"
               value={editForm.term_requested}
-              onChange={(e) => setEditForm(p => ({ ...p, term_requested: e.target.value }))}
+              InputProps={{ readOnly: true }}
+              helperText="Auto-calculated from Amount Requested and Payment Plan."
             />
           </Stack>
         </DialogContent>

@@ -48,7 +48,7 @@ export default function EditFinancials() {
         duration: fin.duration ?? "",
         start_date: fin.start_date ? String(fin.start_date).slice(0, 10) : "",
       });
-    } catch (e) {
+    } catch {
       enqueueSnackbar("Failed to load client.", { variant: "error" });
     } finally {
       setLoading(false);

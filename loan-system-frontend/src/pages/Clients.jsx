@@ -5,10 +5,26 @@ import { useSnackbar } from "notistack";
 import { getAuth } from "../auth/auth";
 
 import {
-  Box, Paper, Typography, Stack, TextField, Button,
-  Table, TableHead, TableRow, TableCell, TableBody,
-  IconButton, Tooltip, Dialog, DialogTitle, DialogContent, DialogActions,
-  Chip, Menu, MenuItem
+  Box,
+  Paper,
+  Typography,
+  Stack,
+  TextField,
+  Button,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Chip,
+  Menu,
+  MenuItem
 } from "@mui/material";
 
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -32,22 +48,31 @@ export default function Clients() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // delete dialog
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+  const [total, setTotal] = useState(0);
+
   const [delOpen, setDelOpen] = useState(false);
   const [delRow, setDelRow] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  // status menu (admin)
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [menuClient, setMenuClient] = useState(null);
 
-  async function load() {
+  async function load(targetPage = page) {
     setLoading(true);
     try {
       const res = await api.get("/clients", {
-        params: { search: search.trim() || undefined },
+        params: {
+          search: search.trim() || undefined,
+          page: targetPage,
+          page_size: pageSize,
+        },
       });
-      setItems(res.data || []);
+
+      setItems(res.data.items || []);
+      setPage(res.data.page || 1);
+      setTotal(res.data.total || 0);
     } catch {
       enqueueSnackbar("Failed to load clients.", { variant: "error" });
     } finally {
@@ -55,7 +80,10 @@ export default function Clients() {
     }
   }
 
-  useEffect(() => { load(); }, []); // eslint-disable-line
+  useEffect(() => {
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function openDelete(c) {
     setDelRow(c);
@@ -69,7 +97,7 @@ export default function Clients() {
       await api.delete(`/clients/${delRow.id}`);
       enqueueSnackbar("Client deleted.", { variant: "success" });
       setDelOpen(false);
-      await load();
+      await load(page);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "Delete failed";
       enqueueSnackbar(msg, { variant: "error" });
@@ -95,11 +123,15 @@ export default function Clients() {
       await api.patch(`/clients/${menuClient.id}/status`, { status: newStatus });
       enqueueSnackbar(`Status updated to ${newStatus}.`, { variant: "success" });
       closeStatusMenu();
-      await load();
+      await load(page);
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "Status update failed";
       enqueueSnackbar(msg, { variant: "error" });
     }
+  }
+
+  function totalPages() {
+    return Math.max(1, Math.ceil(total / pageSize));
   }
 
   return (
@@ -115,7 +147,11 @@ export default function Clients() {
             onChange={(e) => setSearch(e.target.value)}
             sx={{ flex: 1 }}
           />
-          <Button variant="contained" onClick={load} disabled={loading}>
+          <Button
+            variant="contained"
+            onClick={() => load(1)}
+            disabled={loading}
+          >
             {loading ? "Loading..." : "Search"}
           </Button>
         </Stack>
@@ -151,7 +187,6 @@ export default function Clients() {
                 </TableCell>
 
                 <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  {/* Admin status control */}
                   <Tooltip title={role === "ADMIN" ? "Change status" : "Admin only"}>
                     <span>
                       <IconButton
@@ -164,7 +199,6 @@ export default function Clients() {
                     </span>
                   </Tooltip>
 
-                  {/* Delete */}
                   <Tooltip title={role === "ADMIN" ? "Delete client" : "Admin only"}>
                     <span>
                       <IconButton
@@ -194,7 +228,28 @@ export default function Clients() {
         </Table>
       </Paper>
 
-      {/* Status menu */}
+      <Stack direction="row" spacing={2} sx={{ mt: 2 }} alignItems="center">
+        <Button
+          variant="outlined"
+          disabled={page <= 1}
+          onClick={() => load(page - 1)}
+        >
+          Prev
+        </Button>
+
+        <Typography>
+          Page {page} of {totalPages()}
+        </Typography>
+
+        <Button
+          variant="outlined"
+          disabled={page >= totalPages()}
+          onClick={() => load(page + 1)}
+        >
+          Next
+        </Button>
+      </Stack>
+
       <Menu
         anchorEl={menuAnchor}
         open={!!menuAnchor}
@@ -205,7 +260,6 @@ export default function Clients() {
         <MenuItem onClick={() => setStatus("CLOSED")}>Set CLOSED</MenuItem>
       </Menu>
 
-      {/* Delete dialog */}
       <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Delete client?</DialogTitle>
         <DialogContent>

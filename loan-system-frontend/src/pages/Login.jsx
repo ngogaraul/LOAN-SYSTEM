@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
-import { saveAuth } from "../auth/auth";
+import { isAuthed, saveAuth } from "../auth/auth";
 import { useSnackbar } from "notistack";
 
 import {
-  Box, Paper, Typography, TextField, Button, Stack, Divider
+  Box, Paper, Typography, TextField, Button, Stack, Divider, Chip, ToggleButton, ToggleButtonGroup
 } from "@mui/material";
 
 const BANK_BG =
@@ -17,7 +17,14 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [portalRole, setPortalRole] = useState("ANALYST");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isAuthed()) {
+      navigate("/", { replace: true });
+    }
+  }, [navigate]);
 
   async function submit(e) {
     e.preventDefault();
@@ -49,10 +56,12 @@ export default function Login() {
     <Box
       sx={{
         minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        px: 2,
-        backgroundImage: `linear-gradient(rgba(2,6,23,0.55), rgba(2,6,23,0.70)), url(${BANK_BG})`,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        px: { xs: 2, md: 4 },
+        py: 4,
+        backgroundImage: `linear-gradient(rgba(2,6,23,0.72), rgba(15,23,42,0.82)), url(${BANK_BG})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       }}
@@ -60,48 +69,117 @@ export default function Login() {
       <Paper
         sx={{
           width: "100%",
-          maxWidth: 440,
-          p: 4,
-          backdropFilter: "blur(10px)",
+          maxWidth: 980,
+          overflow: "hidden",
+          borderRadius: 6,
+          backdropFilter: "blur(12px)",
           background: "rgba(255,255,255,0.92)",
-          borderRadius: 4,
         }}
       >
-        <Typography variant="h5" sx={{ mb: 0.5 }}>
-          Loan Analyst Portal
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Secure sign-in to review applications and model output.
-        </Typography>
-
-        <Divider sx={{ mb: 2 }} />
-
-        <Box component="form" onSubmit={submit}>
-          <Stack spacing={2}>
-            <TextField
-              label="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="email"
-              required
-            />
-            <TextField
-              label="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              type="password"
-              autoComplete="current-password"
-              required
-            />
-
-            <Button type="submit" variant="contained" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
-            </Button>
-
-            <Typography variant="caption" color="text.secondary">
-              Tip: Use Analyst/Admin accounts created from your backend.
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1.05fr 0.95fr" } }}>
+          <Box
+            sx={{
+              p: { xs: 3, md: 5 },
+              color: "#eff6ff",
+              background: "linear-gradient(180deg, rgba(11,61,145,0.92) 0%, rgba(14,165,233,0.88) 100%)",
+            }}
+          >
+            <Chip label="Loan System" size="small" sx={{ mb: 2, bgcolor: "rgba(255,255,255,0.16)", color: "white" }} />
+            <Typography variant="h3" sx={{ fontWeight: 800, lineHeight: 1.05, mb: 2, fontSize: { xs: "2rem", md: "3rem" } }}>
+              {portalRole === "ADMIN" ? "Loan Admin Portal" : "Loan Analyst Portal"}
             </Typography>
-          </Stack>
+            <Typography variant="body1" sx={{ maxWidth: 420, opacity: 0.92, mb: 3 }}>
+              Sign in with your {portalRole === "ADMIN" ? "admin" : "analyst"} account to access the system.
+            </Typography>
+          </Box>
+
+          <Box sx={{ p: { xs: 3, md: 5 } }}>
+            <Typography variant="h5" sx={{ mb: 0.5, color: "#0f172a", fontWeight: 700 }}>
+              Sign in
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2.5, color: "#475569" }}>
+              Choose your portal and enter your account credentials.
+            </Typography>
+
+            <Divider sx={{ mb: 2.5 }} />
+
+            <Box component="form" onSubmit={submit}>
+              <Stack spacing={2.25}>
+                <ToggleButtonGroup
+                  exclusive
+                  fullWidth
+                  value={portalRole}
+                  onChange={(_, value) => {
+                    if (value) setPortalRole(value);
+                  }}
+                  color="primary"
+                  sx={{
+                    "& .MuiToggleButton-root": {
+                      color: "#334155",
+                      borderColor: "rgba(148, 163, 184, 0.35)",
+                      backgroundColor: "#f8fafc",
+                      fontWeight: 700,
+                    },
+                    "& .MuiToggleButton-root.Mui-selected": {
+                      color: "#0b3d91",
+                      backgroundColor: "rgba(11, 61, 145, 0.12)",
+                    },
+                    "& .MuiToggleButton-root.Mui-selected:hover": {
+                      backgroundColor: "rgba(11, 61, 145, 0.18)",
+                    },
+                  }}
+                >
+                  <ToggleButton value="ANALYST">Analyst</ToggleButton>
+                  <ToggleButton value="ADMIN">Admin</ToggleButton>
+                </ToggleButtonGroup>
+                <TextField
+                  label="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                  fullWidth
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      color: "#0f172a",
+                      backgroundColor: "#ffffff",
+                    },
+                    "& .MuiInputLabel-root": {
+                      color: "#64748b",
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                      color: "#0b3d91",
+                    },
+                  }}
+                />
+                <TextField
+                  label="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  fullWidth
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      color: "#0f172a",
+                      backgroundColor: "#ffffff",
+                    },
+                    "& .MuiInputLabel-root": {
+                      color: "#64748b",
+                    },
+                    "& .MuiInputLabel-root.Mui-focused": {
+                      color: "#0b3d91",
+                    },
+                  }}
+                />
+
+                <Button type="submit" variant="contained" size="large" disabled={loading}>
+                  {loading ? "Signing in..." : "Sign in"}
+                </Button>
+              </Stack>
+            </Box>
+          </Box>
         </Box>
       </Paper>
     </Box>

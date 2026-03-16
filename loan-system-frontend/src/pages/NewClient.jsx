@@ -12,10 +12,39 @@ export default function NewClient() {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const nextErrors = {};
+    const cleanAccount = account.trim();
+    const cleanName = fullName.trim();
+    const cleanPhone = phone.trim();
+
+    if (!cleanAccount) {
+      nextErrors.account = "Account number is required.";
+    } else if (!/^\d+$/.test(cleanAccount)) {
+      nextErrors.account = "Account number must contain digits only.";
+    }
+
+    if (!cleanName) {
+      nextErrors.fullName = "Full name is required.";
+    } else if (cleanName.length < 3) {
+      nextErrors.fullName = "Full name must be at least 3 characters.";
+    }
+
+    if (!cleanPhone) {
+      nextErrors.phone = "Phone number is required.";
+    } else if (!/^\+?\d{9,15}$/.test(cleanPhone)) {
+      nextErrors.phone = "Phone number must be 9 to 15 digits and may start with +.";
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
 
   async function submit() {
-    if (!account.trim()) {
-      enqueueSnackbar("Account is required.", { variant: "warning" });
+    if (!validate()) {
+      enqueueSnackbar("Please fix the highlighted client fields.", { variant: "warning" });
       return;
     }
     setLoading(true);
@@ -27,8 +56,7 @@ export default function NewClient() {
       });
       enqueueSnackbar("Client created successfully.", { variant: "success" });
       const clientId = res.data.client_id;
-      // go to financials form
-      navigate(`/clients/${clientId}/edit-financials`);
+      navigate(`/clients/${clientId}`);
     } catch (e) {
       const msg = e?.response?.data?.error || e?.response?.data?.message || "Failed to create client";
       enqueueSnackbar(msg, { variant: "error" });
@@ -44,21 +72,39 @@ export default function NewClient() {
         <Stack spacing={2}>
           <TextField
             label="Account (unique)"
-            placeholder="ACC001"
+            placeholder="10001"
             value={account}
-            onChange={(e) => setAccount(e.target.value)}
+            onChange={(e) => {
+              const digitsOnly = e.target.value.replace(/\D/g, "");
+              setAccount(digitsOnly);
+              setErrors((prev) => ({ ...prev, account: "" }));
+            }}
+            error={!!errors.account}
+            helperText={errors.account || "Numbers only."}
+            inputProps={{ inputMode: "numeric", pattern: "[0-9]*" }}
           />
           <TextField
             label="Full Name"
             placeholder="John Doe"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            onChange={(e) => {
+              setFullName(e.target.value);
+              setErrors((prev) => ({ ...prev, fullName: "" }));
+            }}
+            error={!!errors.fullName}
+            helperText={errors.fullName}
           />
           <TextField
             label="Phone"
             placeholder="0780000000"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => {
+              setPhone(e.target.value);
+              setErrors((prev) => ({ ...prev, phone: "" }));
+            }}
+            error={!!errors.phone}
+            helperText={errors.phone || "Use digits only, or start with +."}
+            inputProps={{ inputMode: "tel" }}
           />
           <Button variant="contained" onClick={submit} disabled={loading}>
             {loading ? "Saving..." : "Create Client"}

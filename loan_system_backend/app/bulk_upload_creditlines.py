@@ -1,78 +1,74 @@
 import asyncio
+import os
+
 import pandas as pd
-
 from sqlalchemy import select
+
 from app.db import SessionLocal
-from app.models import Client, CreditlineFinancial
+from app.models import Client, ClientFinancial, CreditlineFinancial
 
 
-EXCEL_PATH = r"C:\Users\ngoga\Desktop\Graduation project\credit_scoring\data\Final Raw Data.xlsx"   # <-- change to your real path
-SHEET_NAME = 0  # None = first sheet
+EXCEL_PATH = os.getenv(
+    "IMPORT_EXCEL_PATH",
+    r"C:\Users\ngoga\Desktop\Graduation project\credit_scoring\data\Final Raw Data.xlsx",
+)
 
 
-def to_float(x, default=0.0):
+def to_float(value, default=0.0):
     try:
-        if pd.isna(x):
+        if pd.isna(value):
             return default
-        if isinstance(x, str):
-            x = x.replace(",", "").strip()
-        if x == "":
+        if isinstance(value, str):
+            value = value.replace(",", "").strip()
+        if value == "":
             return default
-        return float(x)
+        return float(value)
     except Exception:
         return default
 
 
-def to_str(x):
-    if x is None or pd.isna(x):
+def to_str(value):
+    if value is None or pd.isna(value):
         return ""
-    return str(x).strip()
+    return str(value).strip()
 
 
-def norm_col(s):
-    return str(s).strip().lower().replace("\n", " ").replace("\t", " ")
+def norm_col(value):
+    return str(value).strip().lower().replace("\n", " ").replace("\t", " ")
+
+
+def aggregate_client_financials(rows: list[CreditlineFinancial]) -> dict:
+    valid_dates = [row.start_date for row in rows if str(row.start_date or "").strip()]
+    return {
+        "outstanding": sum(to_float(row.outstanding) for row in rows),
+        "payment_plan": sum(to_float(row.payment_plan) for row in rows),
+        "remaining_period": max((to_float(row.remaining_period) for row in rows), default=0.0),
+        "periodicity": max((to_float(row.periodicity) for row in rows), default=0.0),
+        "class_value": max((to_float(row.class_value) for row in rows), default=0.0),
+        "compulsory_saving": sum(to_float(row.compulsory_saving) for row in rows),
+        "voluntary_saving": sum(to_float(row.voluntary_saving) for row in rows),
+        "salary": max((to_float(row.salary) for row in rows), default=0.0),
+        "duration": max((to_float(row.duration) for row in rows), default=0.0),
+        "start_date": min(valid_dates) if valid_dates else "",
+    }
 
 
 async def main():
-    df = pd.read_excel(EXCEL_PATH, sheet_name=0)
+    dataframe = pd.read_excel(EXCEL_PATH, sheet_name=0)
+    dataframe.columns = [norm_col(column) for column in dataframe.columns]
 
-    # normalize columns
-    df.columns = [norm_col(c) for c in df.columns]
-
-    # map your excel columns to internal keys
-    # (adjust if your excel has slightly different spellings)
-    colmap = {
-        "account": "account",
-        "creditline": "creditline",
-        "outstanding": "outstanding",
-        "principal arrears": "principal_arrears",
-        "interestarrears": "interest_arrears",
-        "interest arrears": "interest_arrears",
-        "daysinarrears": "days_in_arrears",
-        "days in arrears": "days_in_arrears",
-        "payment plan": "payment_plan",
-        "start date": "start_date",
-        "duration": "duration",
-        "remaining period": "remaining_period",
-        "remaining": "remaining_period",
-        "periodicity": "periodicity",
-        "class": "class_value",
-        "compulsory saving": "compulsory_saving",
-        "voluntary saving": "voluntary_saving",
-        "salary": "salary",
-    }
-
-    # ensure required
-    if "account" not in df.columns:
+    if "account" not in dataframe.columns:
         raise ValueError("Excel must contain 'Account' column")
 
     inserted = 0
+    updated = 0
     skipped_no_client = 0
 
     async with SessionLocal() as session:
-        for i, row in df.iterrows():
+        for _, row in dataframe.iterrows():
             account = to_str(row.get("account"))
-            if not account:
+            creditline_value = to_str(row.get("creditline"))
+            if not account or not creditline_value:
                 continue
 
             client = await session.scalar(select(Client).where(Client.account == account))
@@ -80,38 +76,86 @@ async def main():
                 skipped_no_client += 1
                 continue
 
-            rec = CreditlineFinancial(
-                client_id=client.id,
-                creditline=to_str(row.get("creditline")),
-
-                outstanding=to_float(row.get("outstanding")),
-                principal_arrears=to_float(row.get("principal arrears")),
-                interest_arrears=to_float(row.get("interest arrears") if "interest arrears" in df.columns else row.get("interestarrears")),
-                days_in_arrears=to_float(row.get("days in arrears") if "days in arrears" in df.columns else row.get("daysinarrears")),
-
-                payment_plan=to_float(row.get("payment plan")),
-                start_date=to_str(row.get("start date")),
-                duration=to_float(row.get("duration")),
-                remaining_period=to_float(row.get("remaining period") if "remaining period" in df.columns else row.get("remaining")),
-                periodicity=to_float(row.get("periodicity")),
-                class_value=to_float(row.get("class")),
-                compulsory_saving=to_float(row.get("compulsory saving")),
-                voluntary_saving=to_float(row.get("voluntary saving")),
-                salary=to_float(row.get("salary")),
+            existing = await session.scalar(
+                select(CreditlineFinancial)
+                .where(CreditlineFinancial.client_id == client.id)
+                .where(CreditlineFinancial.creditline == creditline_value)
             )
 
-            session.add(rec)
-            inserted += 1
+            if existing:
+                record = existing
+                updated += 1
+            else:
+                record = CreditlineFinancial(client_id=client.id, creditline=creditline_value)
+                session.add(record)
+                inserted += 1
 
-            # commit in batches (fast + safe)
-            if inserted % 500 == 0:
+            record.outstanding = to_float(row.get("outstanding"))
+            record.principal_arrears = to_float(
+                row.get("principal arrears")
+                if "principal arrears" in dataframe.columns
+                else row.get("principalarrears")
+            )
+            record.interest_arrears = to_float(
+                row.get("interest arrears")
+                if "interest arrears" in dataframe.columns
+                else row.get("interestarrears")
+            )
+            record.days_in_arrears = to_float(
+                row.get("days in arrears")
+                if "days in arrears" in dataframe.columns
+                else row.get("daysinarrears")
+            )
+            record.payment_plan = to_float(row.get("payment plan"))
+            record.start_date = to_str(row.get("start date"))
+            record.duration = to_float(row.get("duration"))
+            record.remaining_period = to_float(
+                row.get("remaining period")
+                if "remaining period" in dataframe.columns
+                else row.get("remaining")
+            )
+            record.periodicity = to_float(row.get("periodicity"))
+            record.class_value = to_float(row.get("class"))
+            record.compulsory_saving = to_float(row.get("compulsory saving"))
+            record.voluntary_saving = to_float(row.get("voluntary saving"))
+            record.salary = to_float(row.get("salary"))
+
+            if (inserted + updated) % 500 == 0:
                 await session.commit()
-                print(f"Committed {inserted} rows...")
+                print(f"Processed {inserted + updated} creditline rows...")
+
+        await session.commit()
+
+        clients = (await session.execute(select(Client))).scalars().all()
+        for client in clients:
+            rows = (await session.execute(
+                select(CreditlineFinancial).where(CreditlineFinancial.client_id == client.id)
+            )).scalars().all()
+            if not rows:
+                continue
+
+            aggregate = aggregate_client_financials(rows)
+            fin = await session.scalar(select(ClientFinancial).where(ClientFinancial.client_id == client.id))
+            if not fin:
+                fin = ClientFinancial(client_id=client.id)
+                session.add(fin)
+
+            fin.outstanding = aggregate["outstanding"]
+            fin.payment_plan = aggregate["payment_plan"]
+            fin.remaining_period = aggregate["remaining_period"]
+            fin.periodicity = aggregate["periodicity"]
+            fin.class_value = aggregate["class_value"]
+            fin.compulsory_saving = aggregate["compulsory_saving"]
+            fin.voluntary_saving = aggregate["voluntary_saving"]
+            fin.salary = aggregate["salary"]
+            fin.duration = aggregate["duration"]
+            fin.start_date = aggregate["start_date"]
 
         await session.commit()
 
     print("DONE")
     print(f"Inserted creditline rows: {inserted}")
+    print(f"Updated creditline rows: {updated}")
     print(f"Skipped rows (no matching client in DB): {skipped_no_client}")
 
 

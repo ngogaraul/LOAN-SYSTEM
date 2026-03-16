@@ -2,7 +2,7 @@ import axios from "axios";
 import { clearAuth, isTokenExpired } from "../auth/auth";
 
 const api = axios.create({
-  baseURL: "http://localhost:9000", // change if different
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:9000",
 });
 
 // attach token automatically

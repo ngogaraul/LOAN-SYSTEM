@@ -5,9 +5,10 @@ from sanic_cors import CORS
 import logging
 from sanic.exceptions import SanicException
 
-from app.config import APP_HOST, APP_PORT, validate_runtime_config
-from app.db import SessionLocal
+from app.config import APP_HOST, APP_PORT, CORS_ORIGINS, validate_runtime_config
+from app.db import SessionLocal, engine
 from app.logging_config import setup_logging
+from app.models import Base
 
 from app.routes.clients import bp as clients_bp
 from app.routes.applications import bp as applications_bp
@@ -22,12 +23,15 @@ logger = logging.getLogger("loan_system")
 validate_runtime_config()
 
 app = Sanic("loan_system_core")
-CORS(app, resources={r"/*": {"origins": ["http://localhost:5173"]}}, supports_credentials=False)
+CORS(app, resources={r"/*": {"origins": CORS_ORIGINS}}, supports_credentials=False)
 
 
 @app.before_server_start
 async def ensure_schema(app_, loop):
     try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
         async with SessionLocal() as session:
             await session.execute(text("""
                 ALTER TABLE loan_applications

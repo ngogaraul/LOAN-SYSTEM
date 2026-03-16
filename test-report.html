@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loan System Test Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1f2937;
+      --muted: #4b5563;
+      --line: #d1d5db;
+      --panel: #f8fafc;
+      --accent: #0f4c81;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      color: var(--ink);
+      background: white;
+      line-height: 1.45;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 32px 36px 48px;
+    }
+
+    h1, h2, h3 {
+      margin: 0 0 10px;
+      line-height: 1.2;
+    }
+
+    h1 {
+      font-size: 28px;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      font-size: 20px;
+      color: var(--accent);
+      margin-top: 28px;
+      padding-top: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    h3 {
+      font-size: 16px;
+      margin-top: 18px;
+    }
+
+    p, li {
+      font-size: 14px;
+    }
+
+    .meta {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 24px;
+    }
+
+    .meta p {
+      margin: 4px 0;
+    }
+
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      background: #eef2f7;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    ul, ol {
+      margin: 8px 0 8px 22px;
+      padding: 0;
+    }
+
+    .status {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid #9bd3a6;
+      background: #edf9f0;
+      color: #176234;
+      font-weight: 600;
+      font-size: 12px;
+    }
+
+    .note {
+      background: #fff8e8;
+      border-left: 4px solid #d4a72c;
+      padding: 10px 12px;
+      margin: 12px 0;
+      color: #5f4a10;
+    }
+
+    @page {
+      size: A4;
+      margin: 16mm;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Loan System Test Report</h1>
+
+    <section class="meta">
+      <p><strong>Date:</strong> 2026-03-15</p>
+      <p><strong>Project:</strong> Loan System</p>
+      <p><strong>Workspace:</strong> <code>C:\Users\ngoga\Desktop\Loan system</code></p>
+    </section>
+
+    <h2>Purpose</h2>
+    <p>
+      This report records the automated tests added for the current Loan System codebase, what they cover,
+      how they were executed, and the remaining testing gaps before deployment.
+    </p>
+
+    <h2>Test Scope</h2>
+    <p>Automated tests were added for the most important logic recently changed in the system:</p>
+    <ul>
+      <li>frontend authentication and session handling</li>
+      <li>frontend loan term auto-calculation</li>
+      <li>frontend default creditline generation</li>
+      <li>backend application creation logic</li>
+      <li>backend application payment plan resolution</li>
+      <li>backend application update logic</li>
+      <li>backend login and auth route behavior</li>
+    </ul>
+    <p>These tests are mainly unit and route-level integration tests. They do not yet include full browser end-to-end tests.</p>
+
+    <h2>Frontend Tests</h2>
+    <p><strong>Frontend test runner:</strong></p>
+    <ul>
+      <li>command: <code>npm test</code></li>
+      <li>location: <code>loan-system-frontend</code></li>
+      <li>implementation file: <code>loan-system-frontend/tests/run-tests.mjs</code></li>
+    </ul>
+
+    <h3>Frontend Files Covered</h3>
+    <ul>
+      <li><code>loan-system-frontend/src/auth/auth.js</code></li>
+      <li><code>loan-system-frontend/src/utils/application.js</code></li>
+    </ul>
+
+    <h3>Frontend Test Cases</h3>
+    <ol>
+      <li><code>getTokenExpiry</code> returns expiry in milliseconds from a valid JWT payload.</li>
+      <li><code>isTokenExpired</code> treats malformed tokens as expired.</li>
+      <li><code>saveAuth</code> and <code>getAuth</code> correctly persist and restore valid auth state.</li>
+      <li>Expired tokens are cleared from storage and treated as logged out.</li>
+      <li><code>clearAuth</code> removes all stored authentication fields.</li>
+      <li><code>calculateTermMonths</code> returns the ceiling of <code>amount / payment_plan</code>.</li>
+      <li><code>calculateTermMonths</code> returns an empty value for invalid input.</li>
+      <li><code>buildDefaultCreditline</code> generates a value from client account when available.</li>
+      <li><code>buildDefaultCreditline</code> falls back to client ID when account is missing.</li>
+    </ol>
+
+    <p><strong>Frontend Result:</strong> <span class="status">Passed</span></p>
+
+    <h2>Backend Tests</h2>
+    <p><strong>Backend test runner:</strong></p>
+    <ul>
+      <li>command: <code>python -m unittest discover -s tests -v</code></li>
+      <li>location: <code>loan_system_backend</code></li>
+      <li>test files: <code>loan_system_backend/tests/test_applications.py</code>, <code>loan_system_backend/tests/test_auth.py</code></li>
+    </ul>
+
+    <div class="note">
+      The backend tests were executed with the backend virtualenv packages available through <code>PYTHONPATH</code>,
+      because the base Python environment did not include Sanic.
+    </div>
+
+    <h3>Backend Files Covered</h3>
+    <ul>
+      <li><code>loan_system_backend/app/routes/applications.py</code></li>
+      <li><code>loan_system_backend/app/routes/auth.py</code></li>
+    </ul>
+
+    <h3>Backend Test Cases</h3>
+    <ol>
+      <li><code>aggregate_creditlines</code> correctly sums and selects aggregate values.</li>
+      <li><code>_resolved_payment_plan</code> prioritizes application-level payment plan first.</li>
+      <li><code>create_application</code> uses an available client creditline when present.</li>
+      <li><code>create_application</code> persists <code>payment_plan</code> on the new application.</li>
+      <li><code>get_application</code> returns the resolved application payment plan.</li>
+      <li><code>update_application</code> updates <code>amount_requested</code>.</li>
+      <li><code>update_application</code> updates <code>payment_plan</code>.</li>
+      <li><code>update_application</code> updates <code>purpose</code>.</li>
+      <li><code>update_application</code> updates <code>term_requested</code>.</li>
+      <li><code>login</code> returns token, role, and user ID for valid credentials.</li>
+      <li><code>login</code> rejects invalid credentials with <code>401</code>.</li>
+    </ol>
+
+    <p><strong>Backend Result:</strong> <span class="status">Passed</span></p>
+
+    <h2>Verification Performed</h2>
+    <ul>
+      <li>frontend automated tests passed</li>
+      <li>backend automated tests passed</li>
+      <li>backend Python syntax check passed</li>
+      <li>frontend production build passed</li>
+    </ul>
+    <p><strong>Frontend production build command:</strong> <code>npm run build</code></p>
+    <p>Build note:</p>
+    <ul>
+      <li>Vite build completed successfully</li>
+      <li>large chunk warning still exists for the frontend bundle and should be handled later as a performance improvement, not as a functional blocker</li>
+    </ul>
+
+    <h2>Current Coverage Summary</h2>
+    <p><strong>Covered well:</strong></p>
+    <ul>
+      <li>auth storage and session-expiry logic</li>
+      <li>term calculation logic</li>
+      <li>default creditline generation</li>
+      <li>payment plan persistence path in backend</li>
+      <li>application update behavior</li>
+      <li>login success and failure behavior</li>
+    </ul>
+    <p><strong>Not covered yet:</strong></p>
+    <ul>
+      <li>full browser UI interaction tests</li>
+      <li>live database integration tests against PostgreSQL</li>
+      <li>full create-to-score-to-decision end-to-end workflow</li>
+      <li>role-based navigation rendering in the browser</li>
+      <li>deployment environment smoke tests</li>
+    </ul>
+
+    <h2>Risks And Gaps</h2>
+    <ol>
+      <li>No real browser automation yet.</li>
+      <li>Backend tests use mocked async session behavior, so they validate route logic but not actual PostgreSQL query execution.</li>
+      <li>No load, security, or concurrency testing has been added.</li>
+      <li>No production deployment smoke test has been executed yet.</li>
+    </ol>
+
+    <h2>Recommendation</h2>
+    <p>The current test suite is a good baseline for protecting the core logic that was recently changed. Before deployment, the next layer should be:</p>
+    <ol>
+      <li>deployment checklist</li>
+      <li>database migration and backup verification</li>
+      <li>manual smoke test in a staging or production-like environment</li>
+      <li>optional browser E2E tests for login, create application, edit application, and view application details</li>
+    </ol>
+  </main>
+</body>
+</html>

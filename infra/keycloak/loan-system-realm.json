@@ -1,0 +1,80 @@
+{
+  "realm": "loan-system",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "roles": {
+    "realm": [
+      {
+        "name": "ADMIN",
+        "description": "Loan system administrators"
+      },
+      {
+        "name": "ANALYST",
+        "description": "Loan system analysts"
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "loan-system-frontend",
+      "name": "Loan System Frontend",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "redirectUris": [
+        "http://localhost:8080/*",
+        "http://localhost:5173/*"
+      ],
+      "webOrigins": [
+        "http://localhost:8080",
+        "http://localhost:5173"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin@loan.local",
+      "enabled": true,
+      "email": "admin@loan.local",
+      "firstName": "Loan",
+      "lastName": "Admin",
+      "emailVerified": true,
+      "realmRoles": [
+        "ADMIN"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Admin123!",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "analyst@loan.local",
+      "enabled": true,
+      "email": "analyst@loan.local",
+      "firstName": "Loan",
+      "lastName": "Analyst",
+      "emailVerified": true,
+      "realmRoles": [
+        "ANALYST"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Analyst123!",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

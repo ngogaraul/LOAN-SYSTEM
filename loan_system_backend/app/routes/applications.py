@@ -4,6 +4,8 @@ from sqlalchemy import select, desc, asc, or_
 from sqlalchemy.orm import aliased
 import re
 
+from app.cache import api_cache, invalidate_all_api_cache
+from app.config import API_CACHE_TTL_SEC
 from app.db import SessionLocal
 from app.models import (
     LoanApplication,
@@ -257,6 +259,7 @@ async def create_application(request):
         session.add(app_)
         await session.commit()
         await session.refresh(app_)
+        await invalidate_all_api_cache()
 
         return json({
             "application_id": app_.id,
@@ -284,6 +287,10 @@ async def list_applications(request):
     page = max(page, 1)
     page_size = min(max(page_size, 1), 100)
     offset = (page - 1) * page_size
+    cache_key = f"applications:list:{status}:{sort}:{search}:{page}:{page_size}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
 
     async with SessionLocal() as session:
         q = select(LoanApplication, Client).join(Client, Client.id == LoanApplication.client_id)
@@ -330,18 +337,25 @@ async def list_applications(request):
                 "submitted_at": str(app_.submitted_at),
             })
 
-        return json({
+        payload = {
             "page": page,
             "page_size": page_size,
             "status_filter": status or None,
             "search": search or None,
             "items": items,
-        })
+        }
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)
 
 
 @bp.get("/<app_id:int>")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def get_application(request, app_id: int):
+    cache_key = f"applications:get:{app_id}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
+
     async with SessionLocal() as session:
         app_ = await session.get(LoanApplication, app_id)
         if not app_:
@@ -361,7 +375,7 @@ async def get_application(request, app_id: int):
             select(CreditlineFinancial).where(CreditlineFinancial.client_id == app_.client_id)
         )).scalars().all()
 
-        return json({
+        payload = {
             "id": app_.id,
             "client_id": app_.client_id,
             "creditline": getattr(app_, "creditline", ""),
@@ -371,12 +385,19 @@ async def get_application(request, app_id: int):
             "term_requested": app_.term_requested,
             "status": app_.status,
             "submitted_at": str(app_.submitted_at),
-        })
+        }
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)
 
 
 @bp.get("/<app_id:int>/details")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def application_details(request, app_id: int):
+    cache_key = f"applications:details:{app_id}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
+
     async with SessionLocal() as session:
         app_ = await session.get(LoanApplication, app_id)
         if not app_:
@@ -446,7 +467,7 @@ async def application_details(request, app_id: int):
                 "start_date": fin.start_date,
             }
 
-        return json({
+        payload = {
             "application": {
                 "id": app_.id,
                 "client_id": app_.client_id,
@@ -476,7 +497,9 @@ async def application_details(request, app_id: int):
                 "scored_at": str(latest_score.scored_at),
             },
             "decisions": decisions,
-        })
+        }
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)
 
 
 @bp.put("/<app_id:int>")
@@ -497,15 +520,18 @@ async def update_application(request, app_id: int):
 
         if "amount_requested" in data:
             app_.amount_requested = float(data.get("amount_requested") or 0)
+            app_.score_stale = True
 
         if "payment_plan" in data:
             app_.payment_plan = float(data.get("payment_plan") or 0)
+            app_.score_stale = True
 
         if "purpose" in data:
             app_.purpose = str(data.get("purpose") or "")
 
         if "term_requested" in data:
             app_.term_requested = int(data.get("term_requested") or 0)
+            app_.score_stale = True
 
         if "creditline" in data:
             new_creditline = str(data.get("creditline") or "").strip()
@@ -524,8 +550,10 @@ async def update_application(request, app_id: int):
                 }, status=409)
 
             app_.creditline = new_creditline
+            app_.score_stale = True
 
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({"message": "application updated", "application_id": app_id})
 
@@ -595,5 +623,6 @@ async def delete_application(request, app_id: int):
             await session.delete(linked_creditline)
 
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({"message": "application deleted", "application_id": app_id})

@@ -30,9 +30,15 @@ The backend loads environment variables (via python-dotenv if present). Importan
 - `APP_PORT` — backend port (default `9000`)
 - `DATABASE_URL` — database connection URL (required)
 - `SCORING_API_BASE` — scoring service base URL (default `http://localhost:8000`)
+- `SCORING_API_KEY` — API key used by the backend to call the scoring service
+- `AUTH_MODE` — `legacy`, `oidc`, or `hybrid` (Docker defaults to `oidc`)
 - `JWT_SECRET` — JWT signing secret (default `change_me`)
 - `JWT_ALG` — JWT algorithm (default `HS256`)
 - `JWT_EXPIRE_MIN` — JWT expiry in minutes (default `480`)
+- `OIDC_ISSUER` — OIDC issuer URL for the external identity provider
+- `OIDC_TOKEN_URL` — token endpoint used by `/auth/login` when OIDC mode is enabled
+- `OIDC_JWKS_URL` — JWKS endpoint used to verify external access tokens
+- `OIDC_CLIENT_ID` — OIDC client id
 - `ADMIN_BOOTSTRAP_KEY` — optional bootstrap admin key
 
 Create a `.env` file in `loan_system_backend/` with the values you need, for example:
@@ -57,6 +63,13 @@ python -m app.main
 
 Notes:
 - The backend uses Sanic (`app/main.py`). If you prefer, run with a process manager or container.
+- In Docker, the backend defaults to `AUTH_MODE=oidc` and authenticates against the bundled Keycloak service.
+- In Docker, the trained scoring model API is included as `scoring-api` on port `8000`.
+- Redis now backs the shared API cache and the scoring job queue.
+- Background scoring is queue-based and handled by the `scoring-worker` service.
+- Demo accounts from the imported realm:
+  - `admin@loan.local` / `Admin123!`
+  - `analyst@loan.local` / `Analyst123!`
 
 Frontend:
 
@@ -73,6 +86,10 @@ Open the frontend dev server (Vite) in your browser (usually http://localhost:51
 - API origin is allowed for `http://localhost:5173` in the backend CORS config (adjust as needed).
 - Backend routes are registered under `loan_system_backend/app/routes/`.
 - Frontend source is under `loan-system-frontend/src/`.
+- User creation/deletion is disabled in-app when `AUTH_MODE` uses OIDC because account lifecycle is managed by Keycloak.
+- Manual scoring remains immediate via the score button, while stale applications are enqueued and rescored by workers.
+- For production deployment guidance, use [docs/production-checklist.md](/C:/Users/ngoga/Desktop/new/docs/production-checklist.md).
+- For capacity testing, use [load-tests/README.md](/C:/Users/ngoga/Desktop/new/load-tests/README.md).
 
 ## Contributing
 

@@ -2,6 +2,7 @@ from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select
 
+from app.auth_service import auth_mode_uses_oidc
 from app.db import SessionLocal
 from app.models import User, Decision
 from app.auth_guard import require_auth
@@ -27,6 +28,7 @@ async def list_users(request):
                 "name": u.name,
                 "email": u.email,
                 "role": u.role,
+                "auth_source": "oidc" if u.external_subject else "legacy",
                 "created_at": str(u.created_at),
             }
             for u in rows
@@ -40,6 +42,12 @@ async def delete_user(request, user_id: int):
         u = await session.get(User, user_id)
         if not u:
             return json({"error": "user_not_found"}, status=404)
+
+        if auth_mode_uses_oidc() and u.external_subject:
+            return json({
+                "error": "external_auth_managed",
+                "message": "Delete this user from the external identity provider instead.",
+            }, status=409)
 
         # prevent FK restrict error (decisions.analyst_id -> users.id)
         ref = await session.scalar(

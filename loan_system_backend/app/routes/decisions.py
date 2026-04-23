@@ -2,6 +2,7 @@ from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select
 
+from app.cache import invalidate_all_api_cache
 from app.db import SessionLocal
 from app.models import LoanApplication, Decision, CreditScore
 from app.auth_guard import require_auth
@@ -64,6 +65,7 @@ async def make_decision(request, app_id: int):
             app_.status = "REVIEW"
 
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "application_id": app_.id,
@@ -121,6 +123,7 @@ async def override_decision(request, app_id: int):
             app_.status = "REVIEW"
 
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "application_id": app_.id,

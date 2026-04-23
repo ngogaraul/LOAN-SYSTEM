@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: loan-system-postgres
+    container_name: loan-system-postgres-v2
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-loan_system}
@@ -17,32 +17,114 @@ services:
       timeout: 5s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    container_name: loan-system-keycloak-v2
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin123!}
+    volumes:
+      - ./infra/keycloak/loan-system-realm.json:/opt/keycloak/data/import/loan-system-realm.json:ro
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+
+  redis:
+    image: redis:7-alpine
+    container_name: loan-system-redis-v2
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+
+  scoring-api:
+    build:
+      context: ./MODEL
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      CREDIT_SCORING_API_KEY: ${SCORING_API_KEY:-dev-scoring-key}
+      CREDIT_SCORING_MODEL_DIR: ${CREDIT_SCORING_MODEL_DIR:-/app/outputs/20260422_102105}
+      CREDIT_SCORING_API_HOST: 0.0.0.0
+      CREDIT_SCORING_API_PORT: 8000
+    ports:
+      - "${SCORING_PORT:-8000}:8000"
+
   backend:
     build:
       context: ./loan_system_backend
       dockerfile: Dockerfile
-    container_name: loan-system-backend
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      keycloak:
+        condition: service_started
+      redis:
+        condition: service_started
+      scoring-api:
+        condition: service_started
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 9000
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-loan_system}
-      SCORING_API_BASE: ${SCORING_API_BASE:-http://host.docker.internal:8000}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-loan_system}}
+      SCORING_API_BASE: ${SCORING_API_BASE:-http://scoring-api:8000}
+      SCORING_API_KEY: ${SCORING_API_KEY:-dev-scoring-key}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      AUTH_MODE: ${AUTH_MODE:-oidc}
       JWT_SECRET: ${JWT_SECRET}
       JWT_ALG: ${JWT_ALG:-HS256}
       JWT_EXPIRE_MIN: ${JWT_EXPIRE_MIN:-480}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://keycloak:8080/realms/loan-system}
+      OIDC_TOKEN_URL: ${OIDC_TOKEN_URL:-http://keycloak:8080/realms/loan-system/protocol/openid-connect/token}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:-http://keycloak:8080/realms/loan-system/protocol/openid-connect/certs}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-loan-system-frontend}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      OIDC_ADMIN_ROLE: ${OIDC_ADMIN_ROLE:-ADMIN}
+      OIDC_ANALYST_ROLE: ${OIDC_ANALYST_ROLE:-ANALYST}
       ADMIN_BOOTSTRAP_KEY: ${ADMIN_BOOTSTRAP_KEY:-}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
       DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
       LOGIN_RATE_LIMIT_WINDOW_SEC: ${LOGIN_RATE_LIMIT_WINDOW_SEC:-300}
       LOGIN_RATE_LIMIT_MAX_ATTEMPTS: ${LOGIN_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      API_CACHE_TTL_SEC: ${API_CACHE_TTL_SEC:-30}
+      API_CACHE_NAMESPACE: ${API_CACHE_NAMESPACE:-loan-system:api-cache}
+      BACKGROUND_SCORING_ENABLED: ${BACKGROUND_SCORING_ENABLED:-true}
+      BACKGROUND_SCORING_INTERVAL_SEC: ${BACKGROUND_SCORING_INTERVAL_SEC:-30}
+      BACKGROUND_SCORING_BATCH_SIZE: ${BACKGROUND_SCORING_BATCH_SIZE:-10}
+      SCORE_QUEUE_NAME: ${SCORE_QUEUE_NAME:-loan-system:score-jobs}
     ports:
       - "${BACKEND_PORT:-9000}:9000"
+
+  scoring-worker:
+    build:
+      context: ./loan_system_backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      scoring-api:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-loan_system}}
+      SCORING_API_BASE: ${SCORING_API_BASE:-http://scoring-api:8000}
+      SCORING_API_KEY: ${SCORING_API_KEY:-dev-scoring-key}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
+      SCORE_QUEUE_NAME: ${SCORE_QUEUE_NAME:-loan-system:score-jobs}
 
   frontend:
     build:
@@ -50,7 +132,6 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-    container_name: loan-system-frontend
     restart: unless-stopped
     depends_on:
       - backend
@@ -59,3 +140,4 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:

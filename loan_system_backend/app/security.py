@@ -2,11 +2,21 @@ import jwt
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
+from jwt import PyJWKClient
 
-from app.config import JWT_SECRET, JWT_ALG, JWT_EXPIRE_MIN
+from app.auth_service import auth_mode_allows_local, auth_mode_uses_oidc
+from app.config import (
+    JWT_SECRET,
+    JWT_ALG,
+    JWT_EXPIRE_MIN,
+    OIDC_AUDIENCE,
+    OIDC_ISSUER,
+    OIDC_JWKS_URL,
+)
 
 # Stable hashing (no bcrypt issues)
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+_oidc_jwk_client = None
 
 
 def hash_password(pw: str) -> str:
@@ -34,5 +44,44 @@ def create_token(user_id: int, role: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-def decode_token(token: str) -> dict:
+def decode_local_token(token: str) -> dict:
     return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+
+
+def _get_oidc_jwk_client() -> PyJWKClient:
+    global _oidc_jwk_client
+    if _oidc_jwk_client is None:
+        _oidc_jwk_client = PyJWKClient(OIDC_JWKS_URL)
+    return _oidc_jwk_client
+
+
+def decode_oidc_token(token: str) -> dict:
+    signing_key = _get_oidc_jwk_client().get_signing_key_from_jwt(token)
+    kwargs = {
+        "algorithms": ["RS256"],
+        "issuer": OIDC_ISSUER,
+        "options": {"verify_aud": bool(OIDC_AUDIENCE)},
+    }
+    if OIDC_AUDIENCE:
+        kwargs["audience"] = OIDC_AUDIENCE
+    return jwt.decode(token, signing_key.key, **kwargs)
+
+
+def decode_token(token: str) -> dict:
+    errors = []
+
+    if auth_mode_allows_local():
+        try:
+            return decode_local_token(token)
+        except Exception as exc:
+            errors.append(exc)
+
+    if auth_mode_uses_oidc():
+        try:
+            return decode_oidc_token(token)
+        except Exception as exc:
+            errors.append(exc)
+
+    if errors:
+        raise errors[-1]
+    raise jwt.InvalidTokenError("No enabled authentication provider could decode the token")

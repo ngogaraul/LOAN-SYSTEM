@@ -1,0 +1,79 @@
+class_label,feature,mean_abs_shap
+High Risk,account_total_savings,1.060496994
+High Risk,account_total_outstanding,0.998496684
+High Risk,Voluntary saving,0.800189934
+High Risk,account_loan_count,0.795078294
+High Risk,remaining_to_duration_ratio,0.748035823
+High Risk,Compulsory saving,0.700423903
+High Risk,account_total_payment_plan,0.671374047
+High Risk,Outstanding,0.599215968
+High Risk,total_savings,0.548785247
+High Risk,Remaining Period,0.490158109
+High Risk,account_mean_duration,0.475666995
+High Risk,Duration,0.400554723
+High Risk,start_year,0.374449355
+High Risk,Salary,0.327536068
+High Risk,loan_age_days,0.309887974
+High Risk,voluntary_saving_to_outstanding_ratio,0.274897941
+High Risk,Periodicity,0.262483247
+High Risk,loan_share_of_account_outstanding,0.235627169
+High Risk,account_max_remaining_period,0.198038531
+High Risk,account_savings_to_outstanding_ratio,0.184002633
+High Risk,start_month,0.174213836
+High Risk,outstanding_to_payment_ratio,0.117195463
+High Risk,total_savings_to_outstanding_ratio,0.070805052
+High Risk,compulsory_saving_to_outstanding_ratio,0.033670571
+High Risk,salary_to_payment_ratio,0.023032658
+High Risk,Payment plan,0.018021504
+Low Risk,account_total_savings,1.727093603
+Low Risk,account_loan_count,1.346115611
+Low Risk,Voluntary saving,1.264894585
+Low Risk,Salary,1.087938268
+Low Risk,Outstanding,0.960309669
+Low Risk,account_total_outstanding,0.918567136
+Low Risk,Compulsory saving,0.867976869
+Low Risk,remaining_to_duration_ratio,0.81973813
+Low Risk,outstanding_to_payment_ratio,0.700013418
+Low Risk,Duration,0.694517171
+Low Risk,account_mean_duration,0.614248721
+Low Risk,total_savings,0.605090956
+Low Risk,Periodicity,0.570892545
+Low Risk,voluntary_saving_to_outstanding_ratio,0.293583814
+Low Risk,loan_age_days,0.269062146
+Low Risk,account_total_payment_plan,0.260585654
+Low Risk,account_max_remaining_period,0.216462056
+Low Risk,start_year,0.121775321
+Low Risk,loan_share_of_account_outstanding,0.090936828
+Low Risk,salary_to_payment_ratio,0.055427415
+Low Risk,Remaining Period,0.052055352
+Low Risk,start_month,0.051895202
+Low Risk,account_savings_to_outstanding_ratio,0.051241198
+Low Risk,Payment plan,0.04274103
+Low Risk,total_savings_to_outstanding_ratio,0.034479961
+Low Risk,compulsory_saving_to_outstanding_ratio,0.006795356
+Medium Risk,Duration,1.095071893
+Medium Risk,Salary,0.760402201
+Medium Risk,account_total_savings,0.666596608
+Medium Risk,outstanding_to_payment_ratio,0.582817954
+Medium Risk,account_loan_count,0.551037317
+Medium Risk,start_year,0.496224676
+Medium Risk,Voluntary saving,0.464704651
+Medium Risk,Remaining Period,0.438102756
+Medium Risk,account_total_payment_plan,0.410788393
+Medium Risk,Outstanding,0.361093701
+Medium Risk,loan_share_of_account_outstanding,0.326563997
+Medium Risk,Periodicity,0.308409297
+Medium Risk,Compulsory saving,0.167552965
+Medium Risk,account_mean_duration,0.138581726
+Medium Risk,account_savings_to_outstanding_ratio,0.132761435
+Medium Risk,start_month,0.122318634
+Medium Risk,account_total_outstanding,0.079929548
+Medium Risk,remaining_to_duration_ratio,0.071702307
+Medium Risk,total_savings,0.056305708
+Medium Risk,loan_age_days,0.040825828
+Medium Risk,total_savings_to_outstanding_ratio,0.036325091
+Medium Risk,salary_to_payment_ratio,0.032394757
+Medium Risk,compulsory_saving_to_outstanding_ratio,0.026875214
+Medium Risk,Payment plan,0.024719527
+Medium Risk,voluntary_saving_to_outstanding_ratio,0.018685873
+Medium Risk,account_max_remaining_period,0.018423525

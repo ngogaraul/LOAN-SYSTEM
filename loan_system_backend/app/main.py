@@ -3,12 +3,24 @@ from sanic.response import json
 from sqlalchemy import text
 from sanic_cors import CORS
 import logging
+import asyncio
+import contextlib
 from sanic.exceptions import SanicException
 
-from app.config import APP_HOST, APP_PORT, CORS_ORIGINS, validate_runtime_config
+from app.config import (
+    APP_HOST,
+    APP_PORT,
+    BACKGROUND_SCORING_BATCH_SIZE,
+    BACKGROUND_SCORING_ENABLED,
+    BACKGROUND_SCORING_INTERVAL_SEC,
+    CORS_ORIGINS,
+    validate_runtime_config,
+)
 from app.db import SessionLocal, engine
 from app.logging_config import setup_logging
 from app.models import Base
+from app.queue_service import enqueue_stale_applications
+from app.redis_runtime import close_redis
 
 from app.routes.clients import bp as clients_bp
 from app.routes.applications import bp as applications_bp
@@ -42,6 +54,18 @@ async def ensure_schema(app_, loop):
                 ADD COLUMN IF NOT EXISTS interest_rate DOUBLE PRECISION DEFAULT 0
             """))
             await session.execute(text("""
+                ALTER TABLE users
+                ADD COLUMN IF NOT EXISTS external_subject VARCHAR(255)
+            """))
+            await session.execute(text("""
+                ALTER TABLE clients
+                ADD COLUMN IF NOT EXISTS gender VARCHAR(16) DEFAULT 'UNKNOWN'
+            """))
+            await session.execute(text("""
+                ALTER TABLE loan_applications
+                ADD COLUMN IF NOT EXISTS score_stale BOOLEAN DEFAULT TRUE
+            """))
+            await session.execute(text("""
                 UPDATE loan_applications la
                 SET payment_plan = cf.payment_plan
                 FROM creditline_financials cf
@@ -49,11 +73,56 @@ async def ensure_schema(app_, loop):
                   AND la.creditline = cf.creditline
                   AND COALESCE(la.payment_plan, 0) = 0
             """))
+            await session.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS ix_users_external_subject
+                ON users(external_subject)
+                WHERE external_subject IS NOT NULL
+            """))
+            await session.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_creditline_financials_client_creditline
+                ON creditline_financials(client_id, creditline)
+            """))
             await session.commit()
         logger.info("Schema check complete.")
     except Exception:
         logger.exception("Schema check failed during startup.")
         raise
+
+
+async def background_scoring_loop() -> None:
+    while True:
+        try:
+            async with SessionLocal() as session:
+                result = await enqueue_stale_applications(session, BACKGROUND_SCORING_BATCH_SIZE)
+                if result["queued"]:
+                    logger.info(
+                        "Background scoring queued=%s scanned=%s",
+                        result["queued"],
+                        result["scanned"],
+                    )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Background scoring loop failed.")
+        await asyncio.sleep(max(BACKGROUND_SCORING_INTERVAL_SEC, 5))
+
+
+@app.after_server_start
+async def start_background_tasks(app_, _loop):
+    if not BACKGROUND_SCORING_ENABLED:
+        return
+    app_.ctx.background_scoring_task = asyncio.create_task(background_scoring_loop())
+    logger.info("Background scoring loop started.")
+
+
+@app.before_server_stop
+async def stop_background_tasks(app_, _loop):
+    task = getattr(app_.ctx, "background_scoring_task", None)
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    await close_redis()
 
 
 @app.get("/health")

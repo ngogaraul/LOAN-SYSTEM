@@ -1,0 +1,97 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  scoring-api:
+    build:
+      context: ./MODEL
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      CREDIT_SCORING_API_KEY: ${SCORING_API_KEY}
+      CREDIT_SCORING_MODEL_DIR: ${CREDIT_SCORING_MODEL_DIR:-/app/outputs/20260422_102105}
+      CREDIT_SCORING_API_HOST: 0.0.0.0
+      CREDIT_SCORING_API_PORT: 8000
+
+  backend:
+    build:
+      context: ./loan_system_backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_started
+      scoring-api:
+        condition: service_started
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 9000
+      DATABASE_URL: ${DATABASE_URL}
+      SCORING_API_BASE: ${SCORING_API_BASE:-http://scoring-api:8000}
+      SCORING_API_KEY: ${SCORING_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      AUTH_MODE: ${AUTH_MODE:-oidc}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALG: ${JWT_ALG:-HS256}
+      JWT_EXPIRE_MIN: ${JWT_EXPIRE_MIN:-480}
+      OIDC_ISSUER: ${OIDC_ISSUER}
+      OIDC_TOKEN_URL: ${OIDC_TOKEN_URL}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile email}
+      OIDC_ADMIN_ROLE: ${OIDC_ADMIN_ROLE:-ADMIN}
+      OIDC_ANALYST_ROLE: ${OIDC_ANALYST_ROLE:-ANALYST}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-40}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
+      LOGIN_RATE_LIMIT_WINDOW_SEC: ${LOGIN_RATE_LIMIT_WINDOW_SEC:-300}
+      LOGIN_RATE_LIMIT_MAX_ATTEMPTS: ${LOGIN_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      API_CACHE_TTL_SEC: ${API_CACHE_TTL_SEC:-30}
+      API_CACHE_NAMESPACE: ${API_CACHE_NAMESPACE:-loan-system:api-cache}
+      BACKGROUND_SCORING_ENABLED: ${BACKGROUND_SCORING_ENABLED:-true}
+      BACKGROUND_SCORING_INTERVAL_SEC: ${BACKGROUND_SCORING_INTERVAL_SEC:-30}
+      BACKGROUND_SCORING_BATCH_SIZE: ${BACKGROUND_SCORING_BATCH_SIZE:-20}
+      SCORE_QUEUE_NAME: ${SCORE_QUEUE_NAME:-loan-system:score-jobs}
+
+  scoring-worker:
+    build:
+      context: ./loan_system_backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      redis:
+        condition: service_started
+      scoring-api:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SCORING_API_BASE: ${SCORING_API_BASE:-http://scoring-api:8000}
+      SCORING_API_KEY: ${SCORING_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-40}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-1800}
+      SCORE_QUEUE_NAME: ${SCORE_QUEUE_NAME:-loan-system:score-jobs}
+
+  frontend:
+    build:
+      context: ./loan-system-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  redis_data:

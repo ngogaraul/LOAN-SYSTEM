@@ -3,12 +3,22 @@ from sanic.response import json
 from sqlalchemy import select
 from collections import deque
 from time import time
+import httpx
 
+from app.auth_service import auth_mode_allows_local, auth_mode_uses_oidc, sync_user_from_claims
+from app.config import (
+    AUTH_MODE,
+    LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
+    LOGIN_RATE_LIMIT_WINDOW_SEC,
+    OIDC_CLIENT_ID,
+    OIDC_CLIENT_SECRET,
+    OIDC_SCOPE,
+    OIDC_TOKEN_URL,
+)
 from app.db import SessionLocal
 from app.models import User
-from app.security import hash_password, verify_password, create_token
+from app.security import hash_password, verify_password, create_token, decode_token
 from app.auth_guard import require_auth
-from app.config import LOGIN_RATE_LIMIT_MAX_ATTEMPTS, LOGIN_RATE_LIMIT_WINDOW_SEC
 
 bp = Blueprint("auth", url_prefix="/auth")
 _LOGIN_ATTEMPTS: dict[str, deque[float]] = {}
@@ -37,9 +47,23 @@ def _clear_failed_attempts(key: str) -> None:
     _LOGIN_ATTEMPTS.pop(key, None)
 
 
+@bp.get("/config")
+async def auth_config(request):
+    return json({
+        "mode": AUTH_MODE,
+        "external_user_management": auth_mode_uses_oidc(),
+    })
+
+
 @bp.post("/register")
 @require_auth(roles=["ADMIN"])
 async def register(request):
+    if auth_mode_uses_oidc():
+        return json({
+            "error": "external_auth_managed",
+            "message": "User creation is managed by the external identity provider.",
+        }, status=501)
+
     data = request.json or {}
     name = (data.get("name") or "").strip()
     email = (data.get("email") or "").strip().lower()
@@ -70,6 +94,63 @@ async def register(request):
         })
 
 
+async def _login_with_local_user(email: str, password: str):
+    async with SessionLocal() as session:
+        user = await session.scalar(select(User).where(User.email == email))
+        if not user:
+            return None
+
+        if not verify_password(password, user.password_hash):
+            return None
+
+        token = create_token(user.id, user.role)
+        return {
+            "token": token,
+            "role": user.role,
+            "user_id": user.id,
+            "provider": "legacy",
+        }
+
+
+async def _login_with_oidc(email: str, password: str):
+    form_data = {
+        "grant_type": "password",
+        "client_id": OIDC_CLIENT_ID,
+        "username": email,
+        "password": password,
+        "scope": OIDC_SCOPE,
+    }
+    if OIDC_CLIENT_SECRET:
+        form_data["client_secret"] = OIDC_CLIENT_SECRET
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.post(
+            OIDC_TOKEN_URL,
+            data=form_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+    if response.status_code in {400, 401, 403}:
+        return None
+
+    response.raise_for_status()
+    payload = response.json()
+    access_token = payload.get("access_token")
+    if not access_token:
+        raise ValueError("OIDC provider response did not include access_token")
+
+    decoded = decode_token(access_token)
+    async with SessionLocal() as session:
+        user = await sync_user_from_claims(session, decoded)
+
+    return {
+        "token": access_token,
+        "role": user.role,
+        "user_id": user.id,
+        "provider": "oidc",
+    }
+
+
 @bp.post("/login")
 async def login(request):
     data = request.json or {}
@@ -83,21 +164,24 @@ async def login(request):
             "message": "Too many login attempts. Try again later."
         }, status=429)
 
-    async with SessionLocal() as session:
-        user = await session.scalar(select(User).where(User.email == email))
-        if not user:
-            _record_failed_attempt(rate_key)
-            return json({"error": "invalid_credentials"}, status=401)
+    auth_result = None
 
-        if not verify_password(password, user.password_hash):
-            _record_failed_attempt(rate_key)
-            return json({"error": "invalid_credentials"}, status=401)
+    if auth_mode_uses_oidc():
+        try:
+            auth_result = await _login_with_oidc(email, password)
+        except Exception as exc:
+            if not auth_mode_allows_local():
+                return json({
+                    "error": "identity_provider_unavailable",
+                    "message": str(exc),
+                }, status=502)
 
-        _clear_failed_attempts(rate_key)
-        token = create_token(user.id, user.role)
+    if not auth_result and auth_mode_allows_local():
+        auth_result = await _login_with_local_user(email, password)
 
-        return json({
-            "token": token,
-            "role": user.role,
-            "user_id": user.id
-        })
+    if not auth_result:
+        _record_failed_attempt(rate_key)
+        return json({"error": "invalid_credentials"}, status=401)
+
+    _clear_failed_attempts(rate_key)
+    return json(auth_result)

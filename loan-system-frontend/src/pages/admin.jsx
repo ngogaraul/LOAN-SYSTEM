@@ -46,6 +46,7 @@ export default function Admin() {
   const role = (getRole() || "").toUpperCase();
 
   const isAdmin = useMemo(() => role === "ADMIN", [role]);
+  const [authConfig, setAuthConfig] = useState({ mode: "legacy", external_user_management: false });
 
   const [me, setMe] = useState(null);
 
@@ -70,6 +71,17 @@ export default function Admin() {
     const analysts = users.filter(u => String(u.role || "").toUpperCase() === "ANALYST").length;
     return { total, admins, analysts };
   }, [users]);
+
+  const externalUserManagement = Boolean(authConfig?.external_user_management);
+
+  async function loadAuthConfig() {
+    try {
+      const res = await api.get("/auth/config");
+      setAuthConfig(res.data || { mode: "legacy", external_user_management: false });
+    } catch {
+      setAuthConfig({ mode: "legacy", external_user_management: false });
+    }
+  }
 
   async function loadMe() {
     try {
@@ -96,6 +108,7 @@ export default function Admin() {
   }
 
   useEffect(() => {
+    loadAuthConfig();
     loadMe();
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,6 +121,11 @@ export default function Admin() {
 
     if (!name || !email || !password) {
       enqueueSnackbar("Name, email and password are required.", { variant: "warning" });
+      return;
+    }
+
+    if (externalUserManagement) {
+      enqueueSnackbar("User creation is managed by the external identity provider.", { variant: "info" });
       return;
     }
 
@@ -214,18 +232,26 @@ export default function Admin() {
         </Stack>
         <Divider sx={{ my: 1 }} />
 
+        {externalUserManagement && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            User lifecycle is managed by the external identity provider while auth mode is {authConfig.mode}.
+          </Alert>
+        )}
+
         <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
           <TextField
             label="Name"
             value={form.name}
             onChange={(e) => setForm(p => ({ ...p, name: e.target.value }))}
             fullWidth
+            disabled={externalUserManagement}
           />
           <TextField
             label="Email"
             value={form.email}
             onChange={(e) => setForm(p => ({ ...p, email: e.target.value }))}
             fullWidth
+            disabled={externalUserManagement}
           />
           <TextField
             label="Password"
@@ -233,6 +259,7 @@ export default function Admin() {
             value={form.password}
             onChange={(e) => setForm(p => ({ ...p, password: e.target.value }))}
             fullWidth
+            disabled={externalUserManagement}
           />
           <TextField
             select
@@ -241,13 +268,14 @@ export default function Admin() {
             onChange={(e) => setForm(p => ({ ...p, role: e.target.value }))}
             sx={{ minWidth: 160 }}
             SelectProps={{ native: true }}
+            disabled={externalUserManagement}
           >
             {ROLES.map(r => (
               <option key={r} value={r}>{r}</option>
             ))}
           </TextField>
 
-          <Button variant="contained" onClick={createUser} disabled={creating}>
+          <Button variant="contained" onClick={createUser} disabled={creating || externalUserManagement}>
             {creating ? "Creating..." : "Create"}
           </Button>
         </Stack>
@@ -295,7 +323,10 @@ export default function Admin() {
                       size="small"
                       startIcon={<DeleteOutlineIcon />}
                       onClick={() => openDelete(u)}
-                      disabled={String(u.role || "").toUpperCase() === "ADMIN"}
+                      disabled={
+                        String(u.role || "").toUpperCase() === "ADMIN" ||
+                        (externalUserManagement && u.auth_source === "oidc")
+                      }
                     >
                       Delete
                     </Button>

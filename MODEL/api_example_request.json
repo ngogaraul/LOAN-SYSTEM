@@ -1,0 +1,18 @@
+{
+  "records": [
+    {
+      "Account": "5000044",
+      "Creditline": "5000044-01-025",
+      "Outstanding": 1397908,
+      "Payment plan": 15159679,
+      "Start date": "2024-08-21",
+      "Duration": 12,
+      "Remaining Period": 1,
+      "Periodicity": 0,
+      "FICO Score": 690,
+      "Compulsory saving": 32175743,
+      "Voluntary saving": 3363046,
+      "Salary": 854
+    }
+  ]
+}

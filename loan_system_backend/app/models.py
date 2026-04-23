@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
-    String, Integer, Float, DateTime, ForeignKey, Text, JSON, func
+    String, Integer, Float, DateTime, ForeignKey, Text, JSON, func, UniqueConstraint, Index
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -17,6 +17,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(180), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    external_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="ANALYST")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -27,6 +28,7 @@ class Client(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    gender: Mapped[str] = mapped_column(String(16), default="UNKNOWN")
     phone: Mapped[str] = mapped_column(String(40), default="")
     status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
 
@@ -76,6 +78,7 @@ class LoanApplication(Base):
     term_requested: Mapped[int] = mapped_column(Integer, default=0)
 
     status: Mapped[str] = mapped_column(String(20), default="SUBMITTED")
+    score_stale: Mapped[bool] = mapped_column(default=True)
     submitted_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     client: Mapped["Client"] = relationship(back_populates="applications")
@@ -93,7 +96,7 @@ class CreditScore(Base):
     credit_score: Mapped[int] = mapped_column(Integer)
     risk_band: Mapped[str] = mapped_column(String(40))
     decision_suggestion: Mapped[str] = mapped_column(String(20))
-    top_factors: Mapped[dict] = mapped_column(JSON, default={})
+    top_factors: Mapped[dict] = mapped_column(JSON, default=dict)
 
     model_version: Mapped[str] = mapped_column(String(40), default="v1")
     scored_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -116,6 +119,10 @@ class Decision(Base):
 
 class CreditlineFinancial(Base):
     __tablename__ = "creditline_financials"
+    __table_args__ = (
+        UniqueConstraint("client_id", "creditline", name="uq_creditline_financials_client_creditline"),
+        Index("ix_creditline_financials_client_creditline", "client_id", "creditline"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)

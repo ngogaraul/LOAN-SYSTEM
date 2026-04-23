@@ -1,5 +1,7 @@
 import asyncio
+import hashlib
 import os
+import random
 
 import pandas as pd
 from sqlalchemy import select
@@ -12,6 +14,48 @@ EXCEL_PATH = os.getenv(
     "IMPORT_EXCEL_PATH",
     r"C:\Users\ngoga\Desktop\Graduation project\credit_scoring\data\Final Raw Data.xlsx",
 )
+
+STATUS = os.getenv("IMPORT_CLIENT_STATUS", "ACTIVE").strip().upper() or "ACTIVE"
+
+KINYARWANDA_MALE_NAMES = [
+    "Nshimiyimana", "Hategekimana", "Niyonzima", "Mugisha", "Uwase", "Bizimana",
+    "Habimana", "Mutabazi", "Ndayisaba", "Rukundo", "Nkurunziza", "Nsengimana",
+    "Munyaneza", "Niyigena", "Muyobozi", "Bikorwa", "Tuyisenge", "Habarurema",
+]
+
+KINYARWANDA_FEMALE_NAMES = [
+    "Mukamana", "Uwimana", "Nyirahabimana", "Umutoni", "Iradukunda", "Ingabire",
+    "Niyonsenga", "Umutoniwase", "Isimbi", "Ineza", "Mutoni", "Nishimwe",
+    "Umutesi", "Kabatesi", "Uwase", "Iradukunda", "Murekatete", "Niyomugabo",
+]
+
+KINYARWANDA_FAMILY_NAMES = [
+    "Uwimana", "Mukamana", "Niyonzima", "Habimana", "Nsengimana", "Munyaneza",
+    "Ndayisaba", "Mutabazi", "Rukundo", "Hategekimana", "Mugisha", "Nshimiyimana",
+    "Umutoni", "Ingabire", "Iradukunda", "Bizimana", "Murekatete", "Nkurunziza",
+]
+
+
+def deterministic_rng(key: str) -> random.Random:
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return random.Random(int(digest[:16], 16))
+
+
+def generated_gender(account: str) -> str:
+    return "FEMALE" if deterministic_rng(f"gender:{account}").randint(0, 1) else "MALE"
+
+
+def generated_name(account: str) -> str:
+    gender = generated_gender(account)
+    rng = deterministic_rng(f"name:{account}")
+    first_name = rng.choice(KINYARWANDA_FEMALE_NAMES if gender == "FEMALE" else KINYARWANDA_MALE_NAMES)
+    family_name = rng.choice(KINYARWANDA_FAMILY_NAMES)
+    return f"{first_name} {family_name}"
+
+
+def generated_phone(account: str) -> str:
+    rng = deterministic_rng(f"phone:{account}")
+    return "07" + f"{rng.randint(0, 99_999_999):08d}"
 
 
 def to_float(value, default=0.0):
@@ -59,10 +103,13 @@ async def main():
 
     if "account" not in dataframe.columns:
         raise ValueError("Excel must contain 'Account' column")
+    if "creditline" not in dataframe.columns:
+        raise ValueError("Excel must contain 'Creditline' column")
 
-    inserted = 0
-    updated = 0
-    skipped_no_client = 0
+    created_clients = 0
+    updated_clients = 0
+    inserted_creditlines = 0
+    updated_creditlines = 0
 
     async with SessionLocal() as session:
         for _, row in dataframe.iterrows():
@@ -72,9 +119,28 @@ async def main():
                 continue
 
             client = await session.scalar(select(Client).where(Client.account == account))
-            if not client:
-                skipped_no_client += 1
-                continue
+            if client:
+                client.full_name = generated_name(account)
+                client.gender = generated_gender(account)
+                client.phone = generated_phone(account)
+                client.status = STATUS
+                updated_clients += 1
+            else:
+                client = Client(
+                    account=account,
+                    full_name=generated_name(account),
+                    gender=generated_gender(account),
+                    phone=generated_phone(account),
+                    status=STATUS,
+                )
+                session.add(client)
+                await session.flush()
+                created_clients += 1
+
+            fin = await session.scalar(select(ClientFinancial).where(ClientFinancial.client_id == client.id))
+            if not fin:
+                fin = ClientFinancial(client_id=client.id)
+                session.add(fin)
 
             existing = await session.scalar(
                 select(CreditlineFinancial)
@@ -84,11 +150,11 @@ async def main():
 
             if existing:
                 record = existing
-                updated += 1
+                updated_creditlines += 1
             else:
                 record = CreditlineFinancial(client_id=client.id, creditline=creditline_value)
                 session.add(record)
-                inserted += 1
+                inserted_creditlines += 1
 
             record.outstanding = to_float(row.get("outstanding"))
             record.principal_arrears = to_float(
@@ -120,9 +186,12 @@ async def main():
             record.voluntary_saving = to_float(row.get("voluntary saving"))
             record.salary = to_float(row.get("salary"))
 
-            if (inserted + updated) % 500 == 0:
+            if (created_clients + updated_clients + inserted_creditlines + updated_creditlines) % 500 == 0:
                 await session.commit()
-                print(f"Processed {inserted + updated} creditline rows...")
+                print(
+                    f"Processed rows with clients(created={created_clients}, updated={updated_clients}) "
+                    f"creditlines(inserted={inserted_creditlines}, updated={updated_creditlines})"
+                )
 
         await session.commit()
 
@@ -154,9 +223,10 @@ async def main():
         await session.commit()
 
     print("DONE")
-    print(f"Inserted creditline rows: {inserted}")
-    print(f"Updated creditline rows: {updated}")
-    print(f"Skipped rows (no matching client in DB): {skipped_no_client}")
+    print(f"Clients created: {created_clients}")
+    print(f"Clients updated: {updated_clients}")
+    print(f"Creditlines inserted: {inserted_creditlines}")
+    print(f"Creditlines updated: {updated_creditlines}")
 
 
 if __name__ == "__main__":

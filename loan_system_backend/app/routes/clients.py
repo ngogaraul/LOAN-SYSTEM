@@ -2,9 +2,12 @@ from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select, desc, or_, func
 
+from app.cache import api_cache, invalidate_all_api_cache
+from app.config import API_CACHE_TTL_SEC
 from app.db import SessionLocal
 from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial
 from app.auth_guard import require_auth
+from app.score_service import mark_client_applications_stale
 
 bp = Blueprint("clients", url_prefix="/clients")
 
@@ -62,11 +65,14 @@ async def create_client(request):
     data = request.json or {}
     account = (data.get("account") or "").strip()
     full_name = (data.get("full_name") or "").strip()
+    gender = str(data.get("gender") or "UNKNOWN").strip().upper()
     phone = (data.get("phone") or "").strip()
     status = _status_upper(data.get("status") or "ACTIVE")
 
     if status not in {"ACTIVE", "SUSPENDED", "CLOSED"}:
         status = "ACTIVE"
+    if gender not in {"MALE", "FEMALE", "UNKNOWN"}:
+        gender = "UNKNOWN"
 
     if not account:
         return json({"error": "account is required"}, status=400)
@@ -79,6 +85,7 @@ async def create_client(request):
         client = Client(
             account=account,
             full_name=full_name,
+            gender=gender,
             phone=phone,
             status=status
         )
@@ -89,10 +96,12 @@ async def create_client(request):
         fin = ClientFinancial(client_id=client.id)
         session.add(fin)
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "client_id": client.id,
             "account": client.account,
+            "gender": client.gender,
             "status": client.status
         })
 
@@ -117,6 +126,10 @@ async def search_clients(request):
         page_size = 100
 
     offset = (page - 1) * page_size
+    cache_key = f"clients:list:{q}:{status}:{page}:{page_size}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
 
     async with SessionLocal() as session:
         stmt = select(Client)
@@ -153,7 +166,7 @@ async def search_clients(request):
             )
         ).scalars().all()
 
-        return json({
+        payload = {
             "page": page,
             "page_size": page_size,
             "total": total,
@@ -162,17 +175,25 @@ async def search_clients(request):
                     "id": c.id,
                     "account": c.account,
                     "full_name": c.full_name,
+                    "gender": getattr(c, "gender", "UNKNOWN"),
                     "phone": c.phone,
                     "status": getattr(c, "status", "ACTIVE")
                 }
                 for c in rows
             ]
-        })
+        }
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)
 
 
 @bp.get("/<client_id:int>")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def get_client(request, client_id: int):
+    cache_key = f"clients:get:{client_id}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
+
     async with SessionLocal() as session:
         client = await session.get(Client, client_id)
         if not client:
@@ -180,10 +201,11 @@ async def get_client(request, client_id: int):
 
         fin = await session.scalar(select(ClientFinancial).where(ClientFinancial.client_id == client_id))
 
-        return json({
+        payload = {
             "id": client.id,
             "account": client.account,
             "full_name": client.full_name,
+            "gender": getattr(client, "gender", "UNKNOWN"),
             "phone": client.phone,
             "status": getattr(client, "status", "ACTIVE"),
             "financials": None if not fin else {
@@ -198,7 +220,9 @@ async def get_client(request, client_id: int):
                 "duration": fin.duration,
                 "start_date": fin.start_date
             }
-        })
+        }
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)
 
 
 @bp.put("/<client_id:int>")
@@ -206,6 +230,7 @@ async def get_client(request, client_id: int):
 async def update_client(request, client_id: int):
     data = request.json or {}
     full_name = data.get("full_name")
+    gender = data.get("gender")
     phone = data.get("phone")
 
     async with SessionLocal() as session:
@@ -216,10 +241,16 @@ async def update_client(request, client_id: int):
         if full_name is not None:
             client.full_name = str(full_name).strip()
 
+        if gender is not None:
+            normalized_gender = str(gender).strip().upper()
+            if normalized_gender in {"MALE", "FEMALE", "UNKNOWN"}:
+                client.gender = normalized_gender
+
         if phone is not None:
             client.phone = str(phone).strip()
 
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "message": "client updated",
@@ -227,6 +258,7 @@ async def update_client(request, client_id: int):
                 "id": client.id,
                 "account": client.account,
                 "full_name": client.full_name,
+                "gender": getattr(client, "gender", "UNKNOWN"),
                 "phone": client.phone,
                 "status": getattr(client, "status", "ACTIVE")
             }
@@ -269,7 +301,9 @@ async def update_financials(request, client_id: int):
         if "start_date" in data:
             fin.start_date = str(data.get("start_date") or "").strip()
 
+        await mark_client_applications_stale(session, client_id)
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "message": "financials updated",
@@ -308,6 +342,7 @@ async def change_client_status(request, client_id: int):
 
         client.status = new_status
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({
             "message": "client status updated",
@@ -345,6 +380,7 @@ async def delete_client(request, client_id: int):
 
         await session.delete(client)
         await session.commit()
+        await invalidate_all_api_cache()
 
         return json({"message": "client deleted", "client_id": client_id})
 
@@ -352,6 +388,11 @@ async def delete_client(request, client_id: int):
 @bp.get("/<client_id:int>/creditlines")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def list_client_creditlines(request, client_id: int):
+    cache_key = f"clients:creditlines:{client_id}"
+    cached = await api_cache.get(cache_key)
+    if cached is not None:
+        return json(cached)
+
     async with SessionLocal() as session:
         rows = (await session.execute(
             select(CreditlineFinancial)
@@ -375,7 +416,7 @@ async def list_client_creditlines(request, client_id: int):
             if not _is_orphan_shell_creditline(r, linked_creditline_values)
         ]
 
-        return json([{
+        payload = [{
             "id": r.id,
             "creditline": r.creditline,
             "application_id": linked_by_creditline.get(str(r.creditline or "").strip()),
@@ -394,4 +435,6 @@ async def list_client_creditlines(request, client_id: int):
             "days_in_arrears": r.days_in_arrears,
             "principal_arrears": r.principal_arrears,
             "interest_arrears": r.interest_arrears,
-        } for r in visible_rows])
+        } for r in visible_rows]
+        await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
+        return json(payload)

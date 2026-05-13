@@ -38,6 +38,7 @@ EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
 EMAIL_CODE_TTL_MIN = int(os.getenv("EMAIL_CODE_TTL_MIN", "10"))
 EMAIL_CODE_RESEND_COOLDOWN_SEC = int(os.getenv("EMAIL_CODE_RESEND_COOLDOWN_SEC", "60"))
 EMAIL_CODE_MAX_VERIFY_ATTEMPTS = int(os.getenv("EMAIL_CODE_MAX_VERIFY_ATTEMPTS", "5"))
+EMAIL_CODE_DELIVERY_TIMEOUT_SEC = int(os.getenv("EMAIL_CODE_DELIVERY_TIMEOUT_SEC", "20"))
 EMAIL_CODE_DELIVERY_MODE = os.getenv("EMAIL_CODE_DELIVERY_MODE", "").strip().lower() or (
     "smtp" if os.getenv("SMTP_HOST", "").strip() else "log"
 )
@@ -49,6 +50,10 @@ SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "").strip()
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "RCA Loan System").strip()
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() == "true"
 SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").strip().lower() == "true"
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+RESEND_API_BASE = os.getenv("RESEND_API_BASE", "https://api.resend.com").strip().rstrip("/")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", SMTP_FROM_EMAIL).strip()
+RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", SMTP_FROM_NAME).strip()
 AUTH_SESSION_COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "rca_session").strip()
 AUTH_SESSION_COOKIE_SECURE = os.getenv("AUTH_SESSION_COOKIE_SECURE", "false").strip().lower() == "true"
 AUTH_SESSION_HOURS = int(os.getenv("AUTH_SESSION_HOURS", "12"))
@@ -97,8 +102,10 @@ def validate_runtime_config() -> None:
             missing.append("EMAIL_CODE_ALLOWED_ADMIN_EMAILS/EMAIL_CODE_ALLOWED_ANALYST_EMAILS")
         if EMAIL_CODE_LENGTH < 4 or EMAIL_CODE_LENGTH > 8:
             missing.append("EMAIL_CODE_LENGTH")
-        if EMAIL_CODE_DELIVERY_MODE not in {"smtp", "log"}:
+        if EMAIL_CODE_DELIVERY_MODE not in {"smtp", "log", "resend"}:
             missing.append("EMAIL_CODE_DELIVERY_MODE")
+        if EMAIL_CODE_DELIVERY_TIMEOUT_SEC < 5:
+            missing.append("EMAIL_CODE_DELIVERY_TIMEOUT_SEC")
         if EMAIL_CODE_DELIVERY_MODE == "smtp":
             if not SMTP_HOST:
                 missing.append("SMTP_HOST")
@@ -108,6 +115,11 @@ def validate_runtime_config() -> None:
                 missing.append("SMTP_USERNAME")
             if not SMTP_PASSWORD:
                 missing.append("SMTP_PASSWORD")
+        if EMAIL_CODE_DELIVERY_MODE == "resend":
+            if not RESEND_API_KEY:
+                missing.append("RESEND_API_KEY")
+            if not RESEND_FROM_EMAIL:
+                missing.append("RESEND_FROM_EMAIL")
 
     if missing:
         raise RuntimeError(

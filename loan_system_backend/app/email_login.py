@@ -8,16 +8,22 @@ import smtplib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
+import httpx
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
     AUTH_SESSION_HOURS,
     EMAIL_CODE_DELIVERY_MODE,
+    EMAIL_CODE_DELIVERY_TIMEOUT_SEC,
     EMAIL_CODE_LENGTH,
     EMAIL_CODE_RESEND_COOLDOWN_SEC,
     EMAIL_CODE_TTL_MIN,
     JWT_SECRET,
+    RESEND_API_BASE,
+    RESEND_API_KEY,
+    RESEND_FROM_EMAIL,
+    RESEND_FROM_NAME,
     SMTP_FROM_EMAIL,
     SMTP_FROM_NAME,
     SMTP_HOST,
@@ -172,18 +178,42 @@ def _send_smtp_email(to_email: str, subject: str, html_body: str, text_body: str
     message.add_alternative(html_body, subtype="html")
 
     if SMTP_USE_SSL:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=EMAIL_CODE_DELIVERY_TIMEOUT_SEC) as server:
             if SMTP_USERNAME:
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(message)
         return
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=EMAIL_CODE_DELIVERY_TIMEOUT_SEC) as server:
         if SMTP_USE_TLS:
             server.starttls()
         if SMTP_USERNAME:
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
         server.send_message(message)
+
+
+async def _send_resend_email(to_email: str, subject: str, html_body: str, text_body: str) -> None:
+    payload = {
+        "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+        "text": text_body,
+    }
+    headers = {
+        "Authorization": f"Bearer {RESEND_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=EMAIL_CODE_DELIVERY_TIMEOUT_SEC) as client:
+        response = await client.post(f"{RESEND_API_BASE}/emails", headers=headers, json=payload)
+
+    if response.status_code >= 400:
+        detail = response.text.strip()
+        raise RuntimeError(
+            f"Resend API error ({response.status_code})"
+            + (f": {detail}" if detail else "")
+        )
 
 
 async def deliver_login_code(email: str, code: str, role: str) -> None:
@@ -204,4 +234,14 @@ async def deliver_login_code(email: str, code: str, role: str) -> None:
         print(f"[EMAIL_CODE_DEBUG] email={email} role={role} code={code}")
         return
 
-    await asyncio.to_thread(_send_smtp_email, email, subject, html_body, text_body)
+    if EMAIL_CODE_DELIVERY_MODE == "resend":
+        await _send_resend_email(email, subject, html_body, text_body)
+        return
+
+    try:
+        await asyncio.wait_for(
+            asyncio.to_thread(_send_smtp_email, email, subject, html_body, text_body),
+            timeout=EMAIL_CODE_DELIVERY_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError("SMTP delivery timed out.") from exc

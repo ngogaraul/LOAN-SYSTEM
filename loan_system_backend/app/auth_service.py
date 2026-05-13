@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
     AUTH_MODE,
-    EMAIL_OTP_ALLOWED_ADMIN_EMAILS,
-    EMAIL_OTP_ALLOWED_ANALYST_EMAILS,
+    EMAIL_CODE_ALLOWED_ADMIN_EMAILS,
+    EMAIL_CODE_ALLOWED_ANALYST_EMAILS,
     OIDC_ADMIN_ROLE,
     OIDC_ANALYST_ROLE,
 )
@@ -19,16 +19,20 @@ def auth_mode_uses_oidc() -> bool:
     return AUTH_MODE in {"oidc", "hybrid"}
 
 
-def auth_mode_uses_email_otp() -> bool:
-    return AUTH_MODE == "email_otp"
+def auth_mode_uses_email_code() -> bool:
+    return AUTH_MODE == "email_code"
 
 
 def auth_mode_allows_local() -> bool:
     return AUTH_MODE in {"legacy", "hybrid"}
 
 
+def auth_mode_uses_local_jwt() -> bool:
+    return AUTH_MODE in {"legacy", "hybrid"}
+
+
 def auth_mode_uses_external() -> bool:
-    return auth_mode_uses_oidc() or auth_mode_uses_email_otp()
+    return auth_mode_uses_oidc()
 
 
 def _normalized_roles(payload: dict[str, Any]) -> set[str]:
@@ -72,22 +76,21 @@ def claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def email_otp_claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
-    email = str(payload.get("email") or "").strip().lower()
+def email_to_profile(email: str) -> dict[str, Any]:
+    email = str(email or "").strip().lower()
     if not email:
-        raise ValueError("OTP identity is missing email")
+        raise ValueError("Email is required")
 
-    if email in EMAIL_OTP_ALLOWED_ADMIN_EMAILS:
+    if email in EMAIL_CODE_ALLOWED_ADMIN_EMAILS:
         role = "ADMIN"
-    elif email in EMAIL_OTP_ALLOWED_ANALYST_EMAILS:
+    elif email in EMAIL_CODE_ALLOWED_ANALYST_EMAILS:
         role = "ANALYST"
     else:
         raise PermissionError("This email is not allowed to access the system")
 
     return {
-        "external_subject": str(payload.get("sub") or "").strip() or None,
         "email": email,
-        "name": str(payload.get("email") or "").strip() or email,
+        "name": email.split("@")[0].replace(".", " ").replace("_", " ").title() or email,
         "role": role,
     }
 
@@ -143,25 +146,17 @@ async def sync_user_from_claims(session: AsyncSession, payload: dict[str, Any]) 
     return user
 
 
-async def sync_user_from_email_otp_claims(session: AsyncSession, payload: dict[str, Any]) -> User:
-    profile = email_otp_claims_to_profile(payload)
-    external_subject = profile["external_subject"]
+async def sync_user_from_email(session: AsyncSession, email: str) -> User:
+    profile = email_to_profile(email)
     email = profile["email"]
-
-    user = None
-    if external_subject:
-        user = await session.scalar(select(User).where(User.external_subject == external_subject))
-
-    if not user and email:
-        user = await session.scalar(select(User).where(User.email == email))
+    user = await session.scalar(select(User).where(User.email == email))
 
     if not user:
         user = User(
             name=profile["name"],
             email=email,
-            password_hash="EXTERNAL_AUTH",
+            password_hash="EMAIL_CODE_LOGIN",
             role=profile["role"],
-            external_subject=external_subject,
         )
         session.add(user)
         await session.commit()
@@ -174,9 +169,6 @@ async def sync_user_from_email_otp_claims(session: AsyncSession, payload: dict[s
         changed = True
     if user.role != profile["role"]:
         user.role = profile["role"]
-        changed = True
-    if external_subject and user.external_subject != external_subject:
-        user.external_subject = external_subject
         changed = True
 
     if changed:

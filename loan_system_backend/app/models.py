@@ -20,6 +20,44 @@ class User(Base):
     external_subject: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="ANALYST")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    login_codes: Mapped[list["LoginCode"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class LoginCode(Base):
+    __tablename__ = "login_codes"
+    __table_args__ = (
+        Index("ix_login_codes_email_role_created", "email", "role", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    email: Mapped[str] = mapped_column(String(180), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="ANALYST")
+    code_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User | None"] = relationship(back_populates="login_codes")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    __table_args__ = (
+        UniqueConstraint("session_hash", name="uq_user_sessions_session_hash"),
+        Index("ix_user_sessions_user_id_expires_at", "user_id", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    session_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
 
 
 class Client(Base):

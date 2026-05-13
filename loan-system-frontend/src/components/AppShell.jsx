@@ -1,5 +1,6 @@
 import { useNavigate, Link as RouterLink, useLocation } from "react-router-dom";
 import { clearAuth, getAuth } from "../auth/auth";
+import api from "../api/client";
 
 import {
   AppBar,
@@ -41,9 +42,15 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
   const role = String(auth?.role || "ANALYST").toUpperCase();
   const portalLabel = role === "ADMIN" ? "Admin Portal" : "Analyst Portal";
 
-  function logout() {
-    clearAuth();
-    navigate("/login", { replace: true });
+  async function logout() {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Ignore logout failures and still clear the local shell state.
+    } finally {
+      clearAuth();
+      navigate("/login", { replace: true });
+    }
   }
 
   function isActive(path) {

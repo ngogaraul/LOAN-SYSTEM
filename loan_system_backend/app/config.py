@@ -22,15 +22,16 @@ OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "").strip()
 OIDC_SCOPE = os.getenv("OIDC_SCOPE", "openid profile email").strip()
 OIDC_ADMIN_ROLE = os.getenv("OIDC_ADMIN_ROLE", "ADMIN").strip().upper()
 OIDC_ANALYST_ROLE = os.getenv("OIDC_ANALYST_ROLE", "ANALYST").strip().upper()
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-GOOGLE_ALLOWED_ADMIN_EMAILS = {
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip()
+EMAIL_OTP_ALLOWED_ADMIN_EMAILS = {
     email.strip().lower()
-    for email in os.getenv("GOOGLE_ALLOWED_ADMIN_EMAILS", "").split(",")
+    for email in os.getenv("EMAIL_OTP_ALLOWED_ADMIN_EMAILS", "").split(",")
     if email.strip()
 }
-GOOGLE_ALLOWED_ANALYST_EMAILS = {
+EMAIL_OTP_ALLOWED_ANALYST_EMAILS = {
     email.strip().lower()
-    for email in os.getenv("GOOGLE_ALLOWED_ANALYST_EMAILS", "").split(",")
+    for email in os.getenv("EMAIL_OTP_ALLOWED_ANALYST_EMAILS", "").split(",")
     if email.strip()
 }
 ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
@@ -60,7 +61,7 @@ def validate_runtime_config() -> None:
     ):
         missing.append("JWT_SECRET")
 
-    if auth_mode not in {"legacy", "oidc", "hybrid", "google"}:
+    if auth_mode not in {"legacy", "oidc", "hybrid", "email_otp"}:
         missing.append("AUTH_MODE")
 
     if auth_mode in {"oidc", "hybrid"}:
@@ -73,11 +74,13 @@ def validate_runtime_config() -> None:
         if not OIDC_CLIENT_ID:
             missing.append("OIDC_CLIENT_ID")
 
-    if auth_mode == "google":
-        if not GOOGLE_CLIENT_ID:
-            missing.append("GOOGLE_CLIENT_ID")
-        if not GOOGLE_ALLOWED_ADMIN_EMAILS and not GOOGLE_ALLOWED_ANALYST_EMAILS:
-            missing.append("GOOGLE_ALLOWED_ADMIN_EMAILS/GOOGLE_ALLOWED_ANALYST_EMAILS")
+    if auth_mode == "email_otp":
+        if not SUPABASE_URL:
+            missing.append("SUPABASE_URL")
+        if not SUPABASE_ANON_KEY:
+            missing.append("SUPABASE_ANON_KEY")
+        if not EMAIL_OTP_ALLOWED_ADMIN_EMAILS and not EMAIL_OTP_ALLOWED_ANALYST_EMAILS:
+            missing.append("EMAIL_OTP_ALLOWED_ADMIN_EMAILS/EMAIL_OTP_ALLOWED_ANALYST_EMAILS")
 
     if missing:
         raise RuntimeError(

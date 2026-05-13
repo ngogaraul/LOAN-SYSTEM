@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
     AUTH_MODE,
-    GOOGLE_ALLOWED_ADMIN_EMAILS,
-    GOOGLE_ALLOWED_ANALYST_EMAILS,
+    EMAIL_OTP_ALLOWED_ADMIN_EMAILS,
+    EMAIL_OTP_ALLOWED_ANALYST_EMAILS,
     OIDC_ADMIN_ROLE,
     OIDC_ANALYST_ROLE,
 )
@@ -19,8 +19,8 @@ def auth_mode_uses_oidc() -> bool:
     return AUTH_MODE in {"oidc", "hybrid"}
 
 
-def auth_mode_uses_google() -> bool:
-    return AUTH_MODE == "google"
+def auth_mode_uses_email_otp() -> bool:
+    return AUTH_MODE == "email_otp"
 
 
 def auth_mode_allows_local() -> bool:
@@ -28,7 +28,7 @@ def auth_mode_allows_local() -> bool:
 
 
 def auth_mode_uses_external() -> bool:
-    return auth_mode_uses_oidc() or auth_mode_uses_google()
+    return auth_mode_uses_oidc() or auth_mode_uses_email_otp()
 
 
 def _normalized_roles(payload: dict[str, Any]) -> set[str]:
@@ -72,24 +72,22 @@ def claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def google_claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
+def email_otp_claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
     email = str(payload.get("email") or "").strip().lower()
     if not email:
-        raise ValueError("Google token missing email")
-    if not payload.get("email_verified", False):
-        raise PermissionError("Google account email must be verified")
+        raise ValueError("OTP identity is missing email")
 
-    if email in GOOGLE_ALLOWED_ADMIN_EMAILS:
+    if email in EMAIL_OTP_ALLOWED_ADMIN_EMAILS:
         role = "ADMIN"
-    elif email in GOOGLE_ALLOWED_ANALYST_EMAILS:
+    elif email in EMAIL_OTP_ALLOWED_ANALYST_EMAILS:
         role = "ANALYST"
     else:
-        raise PermissionError("This Google account is not allowed to access the system")
+        raise PermissionError("This email is not allowed to access the system")
 
     return {
         "external_subject": str(payload.get("sub") or "").strip() or None,
         "email": email,
-        "name": str(payload.get("name") or "").strip() or email,
+        "name": str(payload.get("email") or "").strip() or email,
         "role": role,
     }
 
@@ -145,8 +143,8 @@ async def sync_user_from_claims(session: AsyncSession, payload: dict[str, Any]) 
     return user
 
 
-async def sync_user_from_google_claims(session: AsyncSession, payload: dict[str, Any]) -> User:
-    profile = google_claims_to_profile(payload)
+async def sync_user_from_email_otp_claims(session: AsyncSession, payload: dict[str, Any]) -> User:
+    profile = email_otp_claims_to_profile(payload)
     external_subject = profile["external_subject"]
     email = profile["email"]
 

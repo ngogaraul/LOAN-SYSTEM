@@ -4,28 +4,27 @@ from sqlalchemy import select
 from collections import deque
 from time import time
 import httpx
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
 
 from app.auth_service import (
     auth_mode_allows_local,
     auth_mode_uses_external,
-    auth_mode_uses_google,
+    auth_mode_uses_email_otp,
     auth_mode_uses_oidc,
     sync_user_from_claims,
-    sync_user_from_google_claims,
+    sync_user_from_email_otp_claims,
 )
 from app.config import (
     AUTH_MODE,
-    GOOGLE_ALLOWED_ADMIN_EMAILS,
-    GOOGLE_ALLOWED_ANALYST_EMAILS,
-    GOOGLE_CLIENT_ID,
+    EMAIL_OTP_ALLOWED_ADMIN_EMAILS,
+    EMAIL_OTP_ALLOWED_ANALYST_EMAILS,
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SEC,
     OIDC_CLIENT_ID,
     OIDC_CLIENT_SECRET,
     OIDC_SCOPE,
     OIDC_TOKEN_URL,
+    SUPABASE_ANON_KEY,
+    SUPABASE_URL,
 )
 from app.db import SessionLocal
 from app.models import User
@@ -64,9 +63,10 @@ async def auth_config(request):
     return json({
         "mode": AUTH_MODE,
         "external_user_management": auth_mode_uses_external(),
-        "google_client_id": GOOGLE_CLIENT_ID if auth_mode_uses_google() else "",
-        "allowed_admin_emails": sorted(GOOGLE_ALLOWED_ADMIN_EMAILS),
-        "allowed_analyst_emails": sorted(GOOGLE_ALLOWED_ANALYST_EMAILS),
+        "supabase_url": SUPABASE_URL if auth_mode_uses_email_otp() else "",
+        "supabase_anon_key": SUPABASE_ANON_KEY if auth_mode_uses_email_otp() else "",
+        "allowed_admin_emails": sorted(EMAIL_OTP_ALLOWED_ADMIN_EMAILS),
+        "allowed_analyst_emails": sorted(EMAIL_OTP_ALLOWED_ANALYST_EMAILS),
     })
 
 
@@ -166,30 +166,38 @@ async def _login_with_oidc(email: str, password: str):
     }
 
 
-async def _login_with_google_credential(credential: str):
-    verified_payload = google_id_token.verify_oauth2_token(
-        credential,
-        google_requests.Request(),
-        GOOGLE_CLIENT_ID,
-    )
+async def _login_with_email_otp_token(access_token: str):
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        response = await client.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "apikey": SUPABASE_ANON_KEY,
+            },
+        )
+    if response.status_code in {400, 401, 403}:
+        raise ValueError("Invalid or expired OTP session")
+    response.raise_for_status()
+    verified_payload = response.json()
+
     async with SessionLocal() as session:
-        user = await sync_user_from_google_claims(session, verified_payload)
+        user = await sync_user_from_email_otp_claims(session, verified_payload)
 
     token = create_token(user.id, user.role)
     return {
         "token": token,
         "role": user.role,
         "user_id": user.id,
-        "provider": "google",
+        "provider": "email_otp",
     }
 
 
 @bp.post("/login")
 async def login(request):
-    if auth_mode_uses_google():
+    if auth_mode_uses_email_otp():
         return json({
-            "error": "google_sign_in_required",
-            "message": "Use Google sign-in to continue.",
+            "error": "email_otp_required",
+            "message": "Use email OTP to continue.",
         }, status=501)
 
     data = request.json or {}
@@ -226,26 +234,26 @@ async def login(request):
     return json(auth_result)
 
 
-@bp.post("/google")
-async def google_login(request):
-    if not auth_mode_uses_google():
+@bp.post("/email-otp/exchange")
+async def email_otp_exchange(request):
+    if not auth_mode_uses_email_otp():
         return json({
-            "error": "google_sign_in_disabled",
-            "message": "Google sign-in is not enabled.",
+            "error": "email_otp_disabled",
+            "message": "Email OTP sign-in is not enabled.",
         }, status=501)
 
     data = request.json or {}
-    credential = str(data.get("credential") or "").strip()
-    if not credential:
-        return json({"error": "credential_required"}, status=400)
+    access_token = str(data.get("access_token") or "").strip()
+    if not access_token:
+        return json({"error": "access_token_required"}, status=400)
 
     try:
-        auth_result = await _login_with_google_credential(credential)
+        auth_result = await _login_with_email_otp_token(access_token)
     except PermissionError as exc:
         return json({"error": "forbidden", "message": str(exc)}, status=403)
     except ValueError as exc:
-        return json({"error": "invalid_google_token", "message": str(exc)}, status=401)
+        return json({"error": "invalid_otp_session", "message": str(exc)}, status=401)
     except Exception as exc:
-        return json({"error": "google_auth_failed", "message": str(exc)}, status=502)
+        return json({"error": "email_otp_auth_failed", "message": str(exc)}, status=502)
 
     return json(auth_result)

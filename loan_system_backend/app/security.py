@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 from passlib.exc import UnknownHashError
 from jwt import PyJWKClient
 
-from app.auth_service import auth_mode_allows_local, auth_mode_uses_oidc
+from app.auth_service import auth_mode_allows_local, auth_mode_uses_local_jwt, auth_mode_uses_oidc
 from app.config import (
     JWT_SECRET,
     JWT_ALG,
@@ -70,7 +70,7 @@ def decode_oidc_token(token: str) -> dict:
 def decode_token(token: str) -> dict:
     errors = []
 
-    if auth_mode_allows_local():
+    if auth_mode_uses_local_jwt():
         try:
             return decode_local_token(token)
         except Exception as exc:

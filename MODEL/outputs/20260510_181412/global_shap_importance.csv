@@ -1,0 +1,79 @@
+class_label,feature,mean_abs_shap
+High Risk,account_total_savings,1.060496994420982
+High Risk,account_total_outstanding,0.9984966843502916
+High Risk,Voluntary saving,0.800189933734862
+High Risk,account_loan_count,0.7950782935387573
+High Risk,remaining_to_duration_ratio,0.7480358231419653
+High Risk,Compulsory saving,0.7004239033633402
+High Risk,account_total_payment_plan,0.6713740472113295
+High Risk,Outstanding,0.5992159683546715
+High Risk,total_savings,0.54878524722654
+High Risk,Remaining Period,0.49015810877239063
+High Risk,account_mean_duration,0.4756669948253442
+High Risk,Duration,0.40055472255983593
+High Risk,start_year,0.37444935462536044
+High Risk,Salary,0.32753606784313816
+High Risk,loan_age_days,0.309887973753446
+High Risk,voluntary_saving_to_outstanding_ratio,0.27489794131346323
+High Risk,Periodicity,0.2624832473204598
+High Risk,loan_share_of_account_outstanding,0.23562716876221662
+High Risk,account_max_remaining_period,0.19803853107448371
+High Risk,account_savings_to_outstanding_ratio,0.1840026328492065
+High Risk,start_month,0.17421383604737103
+High Risk,outstanding_to_payment_ratio,0.11719546349130824
+High Risk,total_savings_to_outstanding_ratio,0.0708050517929659
+High Risk,compulsory_saving_to_outstanding_ratio,0.03367057080243943
+High Risk,salary_to_payment_ratio,0.023032658153342635
+High Risk,Payment plan,0.018021503897633906
+Low Risk,account_total_savings,1.727093602876074
+Low Risk,account_loan_count,1.3461156105908194
+Low Risk,Voluntary saving,1.2648945849227804
+Low Risk,Salary,1.0879382683511676
+Low Risk,Outstanding,0.9603096693188491
+Low Risk,account_total_outstanding,0.9185671361638222
+Low Risk,Compulsory saving,0.8679768687552967
+Low Risk,remaining_to_duration_ratio,0.8197381297088896
+Low Risk,outstanding_to_payment_ratio,0.7000134176113284
+Low Risk,Duration,0.6945171707815644
+Low Risk,account_mean_duration,0.6142487208335217
+Low Risk,total_savings,0.605090955526698
+Low Risk,Periodicity,0.5708925445550419
+Low Risk,voluntary_saving_to_outstanding_ratio,0.2935838138964449
+Low Risk,loan_age_days,0.2690621460157947
+Low Risk,account_total_payment_plan,0.26058565444238685
+Low Risk,account_max_remaining_period,0.21646205562152443
+Low Risk,start_year,0.12177532137396041
+Low Risk,loan_share_of_account_outstanding,0.09093682792975426
+Low Risk,salary_to_payment_ratio,0.05542741523813397
+Low Risk,Remaining Period,0.05205535246508913
+Low Risk,start_month,0.05189520218674446
+Low Risk,account_savings_to_outstanding_ratio,0.05124119824194842
+Low Risk,Payment plan,0.042741030488127024
+Low Risk,total_savings_to_outstanding_ratio,0.03447996090567334
+Low Risk,compulsory_saving_to_outstanding_ratio,0.006795356303586438
+Medium Risk,Duration,1.0950718933413952
+Medium Risk,Salary,0.7604022005080247
+Medium Risk,account_total_savings,0.6665966084550924
+Medium Risk,outstanding_to_payment_ratio,0.5828179541200211
+Medium Risk,account_loan_count,0.5510373170520642
+Medium Risk,start_year,0.4962246759993229
+Medium Risk,Voluntary saving,0.4647046511879181
+Medium Risk,Remaining Period,0.4381027563073059
+Medium Risk,account_total_payment_plan,0.4107883927689461
+Medium Risk,Outstanding,0.36109370096418053
+Medium Risk,loan_share_of_account_outstanding,0.3265639966919732
+Medium Risk,Periodicity,0.30840929723458144
+Medium Risk,Compulsory saving,0.16755296539195502
+Medium Risk,account_mean_duration,0.13858172600817797
+Medium Risk,account_savings_to_outstanding_ratio,0.13276143460725717
+Medium Risk,start_month,0.12231863386062412
+Medium Risk,account_total_outstanding,0.07992954818647852
+Medium Risk,remaining_to_duration_ratio,0.07170230656692207
+Medium Risk,total_savings,0.056305708300157534
+Medium Risk,loan_age_days,0.040825827737651234
+Medium Risk,total_savings_to_outstanding_ratio,0.0363250908872944
+Medium Risk,salary_to_payment_ratio,0.032394757084791684
+Medium Risk,compulsory_saving_to_outstanding_ratio,0.026875214498854674
+Medium Risk,Payment plan,0.024719526590493476
+Medium Risk,voluntary_saving_to_outstanding_ratio,0.018685872582980097
+Medium Risk,account_max_remaining_period,0.018423524547042186

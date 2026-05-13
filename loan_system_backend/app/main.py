@@ -35,7 +35,7 @@ logger = logging.getLogger("loan_system")
 validate_runtime_config()
 
 app = Sanic("loan_system_core")
-CORS(app, resources={r"/*": {"origins": CORS_ORIGINS}}, supports_credentials=False)
+CORS(app, resources={r"/*": {"origins": CORS_ORIGINS}}, supports_credentials=True)
 
 
 @app.before_server_start

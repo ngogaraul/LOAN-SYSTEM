@@ -10,6 +10,8 @@ SCORING_API_BASE = os.getenv("SCORING_API_BASE", "http://localhost:8000")
 SCORING_API_KEY = os.getenv("SCORING_API_KEY", "").strip()
 CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
 AUTH_MODE = os.getenv("AUTH_MODE", "legacy").strip().lower()
+if AUTH_MODE == "email_otp":
+    AUTH_MODE = "email_code"
 JWT_SECRET = os.getenv("JWT_SECRET", "change_me")
 JWT_ALG = os.getenv("JWT_ALG", "HS256")
 JWT_EXPIRE_MIN = int(os.getenv("JWT_EXPIRE_MIN", "480"))
@@ -22,6 +24,34 @@ OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "").strip()
 OIDC_SCOPE = os.getenv("OIDC_SCOPE", "openid profile email").strip()
 OIDC_ADMIN_ROLE = os.getenv("OIDC_ADMIN_ROLE", "ADMIN").strip().upper()
 OIDC_ANALYST_ROLE = os.getenv("OIDC_ANALYST_ROLE", "ANALYST").strip().upper()
+EMAIL_CODE_ALLOWED_ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("EMAIL_CODE_ALLOWED_ADMIN_EMAILS", os.getenv("EMAIL_OTP_ALLOWED_ADMIN_EMAILS", "")).split(",")
+    if email.strip()
+}
+EMAIL_CODE_ALLOWED_ANALYST_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("EMAIL_CODE_ALLOWED_ANALYST_EMAILS", os.getenv("EMAIL_OTP_ALLOWED_ANALYST_EMAILS", "")).split(",")
+    if email.strip()
+}
+EMAIL_CODE_LENGTH = int(os.getenv("EMAIL_CODE_LENGTH", "6"))
+EMAIL_CODE_TTL_MIN = int(os.getenv("EMAIL_CODE_TTL_MIN", "10"))
+EMAIL_CODE_RESEND_COOLDOWN_SEC = int(os.getenv("EMAIL_CODE_RESEND_COOLDOWN_SEC", "60"))
+EMAIL_CODE_MAX_VERIFY_ATTEMPTS = int(os.getenv("EMAIL_CODE_MAX_VERIFY_ATTEMPTS", "5"))
+EMAIL_CODE_DELIVERY_MODE = os.getenv("EMAIL_CODE_DELIVERY_MODE", "").strip().lower() or (
+    "smtp" if os.getenv("SMTP_HOST", "").strip() else "log"
+)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", "").strip()
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "RCA Loan System").strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() == "true"
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").strip().lower() == "true"
+AUTH_SESSION_COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "rca_session").strip()
+AUTH_SESSION_COOKIE_SECURE = os.getenv("AUTH_SESSION_COOKIE_SECURE", "false").strip().lower() == "true"
+AUTH_SESSION_HOURS = int(os.getenv("AUTH_SESSION_HOURS", "12"))
 ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
@@ -49,7 +79,7 @@ def validate_runtime_config() -> None:
     ):
         missing.append("JWT_SECRET")
 
-    if auth_mode not in {"legacy", "oidc", "hybrid"}:
+    if auth_mode not in {"legacy", "oidc", "hybrid", "email_code"}:
         missing.append("AUTH_MODE")
 
     if auth_mode in {"oidc", "hybrid"}:
@@ -61,6 +91,23 @@ def validate_runtime_config() -> None:
             missing.append("OIDC_JWKS_URL")
         if not OIDC_CLIENT_ID:
             missing.append("OIDC_CLIENT_ID")
+
+    if auth_mode == "email_code":
+        if not EMAIL_CODE_ALLOWED_ADMIN_EMAILS and not EMAIL_CODE_ALLOWED_ANALYST_EMAILS:
+            missing.append("EMAIL_CODE_ALLOWED_ADMIN_EMAILS/EMAIL_CODE_ALLOWED_ANALYST_EMAILS")
+        if EMAIL_CODE_LENGTH < 4 or EMAIL_CODE_LENGTH > 8:
+            missing.append("EMAIL_CODE_LENGTH")
+        if EMAIL_CODE_DELIVERY_MODE not in {"smtp", "log"}:
+            missing.append("EMAIL_CODE_DELIVERY_MODE")
+        if EMAIL_CODE_DELIVERY_MODE == "smtp":
+            if not SMTP_HOST:
+                missing.append("SMTP_HOST")
+            if not SMTP_FROM_EMAIL:
+                missing.append("SMTP_FROM_EMAIL")
+            if not SMTP_USERNAME:
+                missing.append("SMTP_USERNAME")
+            if not SMTP_PASSWORD:
+                missing.append("SMTP_PASSWORD")
 
     if missing:
         raise RuntimeError(

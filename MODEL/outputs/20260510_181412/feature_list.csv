@@ -1,0 +1,27 @@
+feature
+Outstanding
+Payment plan
+Duration
+Remaining Period
+Periodicity
+Compulsory saving
+Voluntary saving
+Salary
+loan_age_days
+start_year
+start_month
+outstanding_to_payment_ratio
+remaining_to_duration_ratio
+compulsory_saving_to_outstanding_ratio
+voluntary_saving_to_outstanding_ratio
+salary_to_payment_ratio
+total_savings
+total_savings_to_outstanding_ratio
+account_loan_count
+account_total_outstanding
+account_total_payment_plan
+account_total_savings
+account_max_remaining_period
+account_mean_duration
+loan_share_of_account_outstanding
+account_savings_to_outstanding_ratio

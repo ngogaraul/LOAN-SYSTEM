@@ -5,7 +5,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import AUTH_MODE, OIDC_ADMIN_ROLE, OIDC_ANALYST_ROLE
+from app.config import (
+    AUTH_MODE,
+    EMAIL_CODE_ALLOWED_ADMIN_EMAILS,
+    EMAIL_CODE_ALLOWED_ANALYST_EMAILS,
+    OIDC_ADMIN_ROLE,
+    OIDC_ANALYST_ROLE,
+)
 from app.models import User
 
 
@@ -13,8 +19,20 @@ def auth_mode_uses_oidc() -> bool:
     return AUTH_MODE in {"oidc", "hybrid"}
 
 
+def auth_mode_uses_email_code() -> bool:
+    return AUTH_MODE == "email_code"
+
+
 def auth_mode_allows_local() -> bool:
     return AUTH_MODE in {"legacy", "hybrid"}
+
+
+def auth_mode_uses_local_jwt() -> bool:
+    return AUTH_MODE in {"legacy", "hybrid"}
+
+
+def auth_mode_uses_external() -> bool:
+    return auth_mode_uses_oidc()
 
 
 def _normalized_roles(payload: dict[str, Any]) -> set[str]:
@@ -58,6 +76,25 @@ def claims_to_profile(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def email_to_profile(email: str) -> dict[str, Any]:
+    email = str(email or "").strip().lower()
+    if not email:
+        raise ValueError("Email is required")
+
+    if email in EMAIL_CODE_ALLOWED_ADMIN_EMAILS:
+        role = "ADMIN"
+    elif email in EMAIL_CODE_ALLOWED_ANALYST_EMAILS:
+        role = "ANALYST"
+    else:
+        raise PermissionError("This email is not allowed to access the system")
+
+    return {
+        "email": email,
+        "name": email.split("@")[0].replace(".", " ").replace("_", " ").title() or email,
+        "role": role,
+    }
+
+
 async def sync_user_from_claims(session: AsyncSession, payload: dict[str, Any]) -> User:
     profile = claims_to_profile(payload)
     external_subject = profile["external_subject"]
@@ -97,6 +134,38 @@ async def sync_user_from_claims(session: AsyncSession, payload: dict[str, Any]) 
         changed = True
     if external_subject and user.external_subject != external_subject:
         user.external_subject = external_subject
+        changed = True
+    if user.role != profile["role"]:
+        user.role = profile["role"]
+        changed = True
+
+    if changed:
+        await session.commit()
+        await session.refresh(user)
+
+    return user
+
+
+async def sync_user_from_email(session: AsyncSession, email: str) -> User:
+    profile = email_to_profile(email)
+    email = profile["email"]
+    user = await session.scalar(select(User).where(User.email == email))
+
+    if not user:
+        user = User(
+            name=profile["name"],
+            email=email,
+            password_hash="EMAIL_CODE_LOGIN",
+            role=profile["role"],
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
+
+    changed = False
+    if user.name != profile["name"]:
+        user.name = profile["name"]
         changed = True
     if user.role != profile["role"]:
         user.role = profile["role"]

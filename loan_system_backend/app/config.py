@@ -42,6 +42,10 @@ EMAIL_CODE_DELIVERY_TIMEOUT_SEC = int(os.getenv("EMAIL_CODE_DELIVERY_TIMEOUT_SEC
 EMAIL_CODE_DELIVERY_MODE = os.getenv("EMAIL_CODE_DELIVERY_MODE", "").strip().lower() or (
     "smtp" if os.getenv("SMTP_HOST", "").strip() else "log"
 )
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+BREVO_API_BASE = os.getenv("BREVO_API_BASE", "https://api.brevo.com/v3").strip().rstrip("/")
+BREVO_FROM_EMAIL = os.getenv("BREVO_FROM_EMAIL", "").strip()
+BREVO_FROM_NAME = os.getenv("BREVO_FROM_NAME", "RCA Loan System").strip()
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
@@ -102,10 +106,15 @@ def validate_runtime_config() -> None:
             missing.append("EMAIL_CODE_ALLOWED_ADMIN_EMAILS/EMAIL_CODE_ALLOWED_ANALYST_EMAILS")
         if EMAIL_CODE_LENGTH < 4 or EMAIL_CODE_LENGTH > 8:
             missing.append("EMAIL_CODE_LENGTH")
-        if EMAIL_CODE_DELIVERY_MODE not in {"smtp", "log", "resend"}:
+        if EMAIL_CODE_DELIVERY_MODE not in {"smtp", "log", "resend", "brevo"}:
             missing.append("EMAIL_CODE_DELIVERY_MODE")
         if EMAIL_CODE_DELIVERY_TIMEOUT_SEC < 5:
             missing.append("EMAIL_CODE_DELIVERY_TIMEOUT_SEC")
+        if EMAIL_CODE_DELIVERY_MODE == "brevo":
+            if not BREVO_API_KEY:
+                missing.append("BREVO_API_KEY")
+            if not BREVO_FROM_EMAIL:
+                missing.append("BREVO_FROM_EMAIL")
         if EMAIL_CODE_DELIVERY_MODE == "smtp":
             if not SMTP_HOST:
                 missing.append("SMTP_HOST")

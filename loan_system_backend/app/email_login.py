@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import (
     AUTH_SESSION_HOURS,
+    BREVO_API_BASE,
+    BREVO_API_KEY,
+    BREVO_FROM_EMAIL,
+    BREVO_FROM_NAME,
     EMAIL_CODE_DELIVERY_MODE,
     EMAIL_CODE_DELIVERY_TIMEOUT_SEC,
     EMAIL_CODE_LENGTH,
@@ -216,6 +220,38 @@ async def _send_resend_email(to_email: str, subject: str, html_body: str, text_b
         )
 
 
+async def _send_brevo_email(to_email: str, subject: str, html_body: str, text_body: str) -> None:
+    payload = {
+        "sender": {
+            "name": BREVO_FROM_NAME,
+            "email": BREVO_FROM_EMAIL,
+        },
+        "to": [
+            {
+                "email": to_email,
+            }
+        ],
+        "subject": subject,
+        "htmlContent": html_body,
+        "textContent": text_body,
+    }
+    headers = {
+        "api-key": BREVO_API_KEY,
+        "accept": "application/json",
+        "content-type": "application/json",
+    }
+
+    async with httpx.AsyncClient(timeout=EMAIL_CODE_DELIVERY_TIMEOUT_SEC) as client:
+        response = await client.post(f"{BREVO_API_BASE}/smtp/email", headers=headers, json=payload)
+
+    if response.status_code >= 400:
+        detail = response.text.strip()
+        raise RuntimeError(
+            f"Brevo API error ({response.status_code})"
+            + (f": {detail}" if detail else "")
+        )
+
+
 async def deliver_login_code(email: str, code: str, role: str) -> None:
     subject = "Your Loan System login code"
     text_body = (
@@ -236,6 +272,10 @@ async def deliver_login_code(email: str, code: str, role: str) -> None:
 
     if EMAIL_CODE_DELIVERY_MODE == "resend":
         await _send_resend_email(email, subject, html_body, text_body)
+        return
+
+    if EMAIL_CODE_DELIVERY_MODE == "brevo":
+        await _send_brevo_email(email, subject, html_body, text_body)
         return
 
     try:

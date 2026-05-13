@@ -1,0 +1,68 @@
+{
+  "model_name": "logistic_regression",
+  "target_column": "Target",
+  "group_column": "Account",
+  "row_id_column": "Creditline",
+  "feature_columns": [
+    "Outstanding",
+    "Payment plan",
+    "Duration",
+    "Remaining Period",
+    "Periodicity",
+    "Compulsory saving",
+    "Voluntary saving",
+    "Salary",
+    "loan_age_days",
+    "start_year",
+    "start_month",
+    "outstanding_to_payment_ratio",
+    "remaining_to_duration_ratio",
+    "compulsory_saving_to_outstanding_ratio",
+    "voluntary_saving_to_outstanding_ratio",
+    "salary_to_payment_ratio",
+    "total_savings",
+    "total_savings_to_outstanding_ratio",
+    "account_loan_count",
+    "account_total_outstanding",
+    "account_total_payment_plan",
+    "account_total_savings",
+    "account_max_remaining_period",
+    "account_mean_duration",
+    "loan_share_of_account_outstanding",
+    "account_savings_to_outstanding_ratio"
+  ],
+  "fico_score_in_features": false,
+  "train_rows": 1596,
+  "test_rows": 404,
+  "train_accounts": 975,
+  "test_accounts": 244,
+  "excluded_identifier_columns": [
+    "S/N",
+    "Account",
+    "Creditline"
+  ],
+  "excluded_leakage_columns": [
+    "Class",
+    "DaysInArrears"
+  ],
+  "optional_exclusions_enabled": true,
+  "optional_exclude_columns": [
+    "Principal Arrears",
+    "InterestArrears"
+  ],
+  "train_target_distribution_pct": {
+    "Low Risk": 89.41,
+    "High Risk": 8.02,
+    "Medium Risk": 2.57
+  },
+  "test_target_distribution_pct": {
+    "Low Risk": 85.89,
+    "High Risk": 10.15,
+    "Medium Risk": 3.96
+  },
+  "governance_warnings": [
+    "Target distribution is highly imbalanced. Use balanced metrics and review minority-class recall before deployment.",
+    "Configured leakage-sensitive columns are excluded from training by default and should remain excluded unless the prediction target changes.",
+    "Optional arrears-based exclusions are enabled to reduce current-state leakage in the baseline model."
+  ]
+}

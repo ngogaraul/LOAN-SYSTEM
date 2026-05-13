@@ -4,10 +4,22 @@ from sqlalchemy import select
 from collections import deque
 from time import time
 import httpx
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
-from app.auth_service import auth_mode_allows_local, auth_mode_uses_oidc, sync_user_from_claims
+from app.auth_service import (
+    auth_mode_allows_local,
+    auth_mode_uses_external,
+    auth_mode_uses_google,
+    auth_mode_uses_oidc,
+    sync_user_from_claims,
+    sync_user_from_google_claims,
+)
 from app.config import (
     AUTH_MODE,
+    GOOGLE_ALLOWED_ADMIN_EMAILS,
+    GOOGLE_ALLOWED_ANALYST_EMAILS,
+    GOOGLE_CLIENT_ID,
     LOGIN_RATE_LIMIT_MAX_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_SEC,
     OIDC_CLIENT_ID,
@@ -51,14 +63,17 @@ def _clear_failed_attempts(key: str) -> None:
 async def auth_config(request):
     return json({
         "mode": AUTH_MODE,
-        "external_user_management": auth_mode_uses_oidc(),
+        "external_user_management": auth_mode_uses_external(),
+        "google_client_id": GOOGLE_CLIENT_ID if auth_mode_uses_google() else "",
+        "allowed_admin_emails": sorted(GOOGLE_ALLOWED_ADMIN_EMAILS),
+        "allowed_analyst_emails": sorted(GOOGLE_ALLOWED_ANALYST_EMAILS),
     })
 
 
 @bp.post("/register")
 @require_auth(roles=["ADMIN"])
 async def register(request):
-    if auth_mode_uses_oidc():
+    if auth_mode_uses_external():
         return json({
             "error": "external_auth_managed",
             "message": "User creation is managed by the external identity provider.",
@@ -151,8 +166,32 @@ async def _login_with_oidc(email: str, password: str):
     }
 
 
+async def _login_with_google_credential(credential: str):
+    verified_payload = google_id_token.verify_oauth2_token(
+        credential,
+        google_requests.Request(),
+        GOOGLE_CLIENT_ID,
+    )
+    async with SessionLocal() as session:
+        user = await sync_user_from_google_claims(session, verified_payload)
+
+    token = create_token(user.id, user.role)
+    return {
+        "token": token,
+        "role": user.role,
+        "user_id": user.id,
+        "provider": "google",
+    }
+
+
 @bp.post("/login")
 async def login(request):
+    if auth_mode_uses_google():
+        return json({
+            "error": "google_sign_in_required",
+            "message": "Use Google sign-in to continue.",
+        }, status=501)
+
     data = request.json or {}
     email = (data.get("email") or "").strip().lower()
     password = data.get("password") or ""
@@ -184,4 +223,29 @@ async def login(request):
         return json({"error": "invalid_credentials"}, status=401)
 
     _clear_failed_attempts(rate_key)
+    return json(auth_result)
+
+
+@bp.post("/google")
+async def google_login(request):
+    if not auth_mode_uses_google():
+        return json({
+            "error": "google_sign_in_disabled",
+            "message": "Google sign-in is not enabled.",
+        }, status=501)
+
+    data = request.json or {}
+    credential = str(data.get("credential") or "").strip()
+    if not credential:
+        return json({"error": "credential_required"}, status=400)
+
+    try:
+        auth_result = await _login_with_google_credential(credential)
+    except PermissionError as exc:
+        return json({"error": "forbidden", "message": str(exc)}, status=403)
+    except ValueError as exc:
+        return json({"error": "invalid_google_token", "message": str(exc)}, status=401)
+    except Exception as exc:
+        return json({"error": "google_auth_failed", "message": str(exc)}, status=502)
+
     return json(auth_result)

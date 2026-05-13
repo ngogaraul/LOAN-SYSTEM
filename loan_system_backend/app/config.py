@@ -22,6 +22,17 @@ OIDC_CLIENT_SECRET = os.getenv("OIDC_CLIENT_SECRET", "").strip()
 OIDC_SCOPE = os.getenv("OIDC_SCOPE", "openid profile email").strip()
 OIDC_ADMIN_ROLE = os.getenv("OIDC_ADMIN_ROLE", "ADMIN").strip().upper()
 OIDC_ANALYST_ROLE = os.getenv("OIDC_ANALYST_ROLE", "ANALYST").strip().upper()
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_ALLOWED_ADMIN_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("GOOGLE_ALLOWED_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
+GOOGLE_ALLOWED_ANALYST_EMAILS = {
+    email.strip().lower()
+    for email in os.getenv("GOOGLE_ALLOWED_ANALYST_EMAILS", "").split(",")
+    if email.strip()
+}
 ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
@@ -49,7 +60,7 @@ def validate_runtime_config() -> None:
     ):
         missing.append("JWT_SECRET")
 
-    if auth_mode not in {"legacy", "oidc", "hybrid"}:
+    if auth_mode not in {"legacy", "oidc", "hybrid", "google"}:
         missing.append("AUTH_MODE")
 
     if auth_mode in {"oidc", "hybrid"}:
@@ -61,6 +72,12 @@ def validate_runtime_config() -> None:
             missing.append("OIDC_JWKS_URL")
         if not OIDC_CLIENT_ID:
             missing.append("OIDC_CLIENT_ID")
+
+    if auth_mode == "google":
+        if not GOOGLE_CLIENT_ID:
+            missing.append("GOOGLE_CLIENT_ID")
+        if not GOOGLE_ALLOWED_ADMIN_EMAILS and not GOOGLE_ALLOWED_ANALYST_EMAILS:
+            missing.append("GOOGLE_ALLOWED_ADMIN_EMAILS/GOOGLE_ALLOWED_ANALYST_EMAILS")
 
     if missing:
         raise RuntimeError(

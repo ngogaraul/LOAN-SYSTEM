@@ -8,6 +8,7 @@ APP_PORT = int(os.getenv("APP_PORT", "9000"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 SCORING_API_BASE = os.getenv("SCORING_API_BASE", "http://localhost:8000")
 SCORING_API_KEY = os.getenv("SCORING_API_KEY", "").strip()
+SCORING_API_TIMEOUT_SEC = int(os.getenv("SCORING_API_TIMEOUT_SEC", "90"))
 CORS_ORIGINS = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if origin.strip()]
 AUTH_MODE = os.getenv("AUTH_MODE", "legacy").strip().lower()
 if AUTH_MODE == "email_otp":
@@ -86,6 +87,9 @@ def validate_runtime_config() -> None:
 
     if not DATABASE_URL:
         missing.append("DATABASE_URL")
+
+    if SCORING_API_TIMEOUT_SEC < 5:
+        missing.append("SCORING_API_TIMEOUT_SEC")
 
     if auth_mode in {"legacy", "hybrid"} and (
         not JWT_SECRET or JWT_SECRET.strip() in {"", "change_me"} or len(JWT_SECRET.strip()) < 16

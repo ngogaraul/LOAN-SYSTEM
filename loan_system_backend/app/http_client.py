@@ -2,7 +2,7 @@ import asyncio
 
 import httpx
 
-from app.config import SCORING_API_BASE, SCORING_API_KEY
+from app.config import SCORING_API_BASE, SCORING_API_KEY, SCORING_API_TIMEOUT_SEC
 
 
 class ScoringServiceError(Exception):
@@ -49,7 +49,8 @@ async def call_scoring_api(payload: dict) -> dict:
 
     for attempt in range(max_attempts):
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            timeout = httpx.Timeout(SCORING_API_TIMEOUT_SEC, connect=20.0)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(
                     f"{SCORING_API_BASE}/predict",
                     json=payload,
@@ -73,6 +74,16 @@ async def call_scoring_api(payload: dict) -> dict:
                 retry_after=retry_after,
             ) from exc
         except httpx.RequestError as exc:
+            if isinstance(exc, httpx.TimeoutException):
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(backoff_seconds[attempt])
+                    continue
+                raise ScoringServiceError(
+                    "Scoring service timed out while processing the request. "
+                    "On free hosting this can happen while the model service wakes up. "
+                    "Please try again shortly.",
+                    status_code=504,
+                ) from exc
             if attempt < max_attempts - 1:
                 await asyncio.sleep(backoff_seconds[attempt])
                 continue

@@ -15,8 +15,12 @@ import {
   MenuItem,
   Alert,
   ToggleButton,
-  ToggleButtonGroup
+  ToggleButtonGroup,
+  useMediaQuery,
+  Grid,
+  Chip,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 function useQuery() {
   return new URLSearchParams(useLocation().search);
@@ -26,6 +30,8 @@ export default function NewApplication() {
   const query = useQuery();
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const preClientId = query.get("client_id") || "";
 
@@ -51,10 +57,6 @@ export default function NewApplication() {
   const [creditlineError, setCreditlineError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
 
-  /* ---------------------------
-     CLIENT SEARCH
-  ----------------------------*/
-
   const searchClients = useEffectEvent(async (text) => {
     if (!text || text.trim().length < 2) {
       setClientOptions([]);
@@ -66,10 +68,8 @@ export default function NewApplication() {
 
     try {
       const res = await api.get("/clients", {
-        params: { search: text.trim() }
+        params: { search: text.trim() },
       });
-
-      // FIX: backend returns paginated response
       setClientOptions(res.data.items || []);
     } catch {
       setSearchError("Failed to search clients.");
@@ -79,10 +79,6 @@ export default function NewApplication() {
     }
   });
 
-  /* ---------------------------
-     AUTO SEARCH (DEBOUNCE)
-  ----------------------------*/
-
   useEffect(() => {
     const timer = setTimeout(() => {
       searchClients(clientSearch);
@@ -90,10 +86,6 @@ export default function NewApplication() {
 
     return () => clearTimeout(timer);
   }, [clientSearch]);
-
-  /* ---------------------------
-     PREFILL CLIENT IF PROVIDED
-  ----------------------------*/
 
   useEffect(() => {
     if (!preClientId) return;
@@ -107,15 +99,15 @@ export default function NewApplication() {
             id: res.data.id,
             account: res.data.account,
             full_name: res.data.full_name,
-            phone: res.data.phone
-          }
+            phone: res.data.phone,
+          },
         ]);
 
         setSelectedClient({
           id: res.data.id,
           account: res.data.account,
           full_name: res.data.full_name,
-          phone: res.data.phone
+          phone: res.data.phone,
         });
         setSelectedClientId(res.data.id);
       } catch {
@@ -178,10 +170,6 @@ export default function NewApplication() {
     setTerm(calculateTermMonths(amount, paymentPlan));
   }, [amount, paymentPlan]);
 
-  /* ---------------------------
-     SUBMIT APPLICATION
-  ----------------------------*/
-
   async function submit() {
     const nextErrors = {};
 
@@ -235,7 +223,6 @@ export default function NewApplication() {
       });
 
       enqueueSnackbar("Application created successfully.", { variant: "success" });
-
       navigate("/");
     } catch (e) {
       const msg =
@@ -249,32 +236,25 @@ export default function NewApplication() {
     }
   }
 
-  /* ---------------------------
-     UI
-  ----------------------------*/
-
   return (
     <Box>
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>
+          Create New Application
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Build the application in the right order: select a borrower, choose the correct creditline, then capture the requested terms.
+        </Typography>
+      </Box>
 
-      {/* PAGE HEADER */}
-
-      <Typography variant="h5" sx={{ mb: 2 }}>
-        Create New Application
-      </Typography>
-
-      <Paper sx={{ p: 3, maxWidth: 760 }}>
-
+      <Paper sx={{ p: { xs: 1.5, sm: 2.5, md: 3 }, maxWidth: 980, borderRadius: 3 }}>
         <Stack spacing={3}>
-
-          {/* CLIENT SELECTION */}
-
           <Box>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Select Client
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 700 }}>
+              1. Select Client
             </Typography>
 
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-
               <TextField
                 label="Search client"
                 placeholder="Type account or name..."
@@ -284,9 +264,8 @@ export default function NewApplication() {
               />
 
               {loadingClients && (
-                <CircularProgress size={24} sx={{ mt: 2 }} />
+                <CircularProgress size={24} sx={{ mt: { xs: 0, sm: 2 } }} />
               )}
-
             </Stack>
 
             {searchError && (
@@ -311,111 +290,121 @@ export default function NewApplication() {
             >
               {clientOptions.length === 0 ? (
                 <MenuItem value="">
-                  {loadingClients
-                    ? "Searching..."
-                    : "Type at least 2 characters to search"}
+                  {loadingClients ? "Searching..." : "Type at least 2 characters to search"}
                 </MenuItem>
               ) : (
-                clientOptions.map((c) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.account} — {c.full_name}
+                clientOptions.map((client) => (
+                  <MenuItem key={client.id} value={client.id}>
+                    {client.account} - {client.full_name}
                   </MenuItem>
                 ))
               )}
             </TextField>
           </Box>
 
-          {!selectedClientId && (
+          {selectedClient ? (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 3,
+                backgroundColor: theme.palette.mode === "dark" ? "rgba(59, 130, 246, 0.06)" : "rgba(239, 246, 255, 0.74)",
+              }}
+            >
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between">
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    {selectedClient.full_name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Account {selectedClient.account} {selectedClient.phone ? `- ${selectedClient.phone}` : ""}
+                  </Typography>
+                </Box>
+                <Chip label="Client selected" color="success" variant="outlined" />
+              </Stack>
+            </Paper>
+          ) : (
             <Alert severity="info">
               Search and select a client before filling application details.
             </Alert>
           )}
 
-          {/* APPLICATION DETAILS */}
-
           <Box>
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-              Application Details
+            <Typography variant="subtitle1" sx={{ mb: 1, fontWeight: 700 }}>
+              2. Application Details
             </Typography>
 
-            <Stack spacing={2}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Amount Requested"
+                  type="number"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, amount: "", term: "" }));
+                  }}
+                  placeholder="2000000"
+                  fullWidth
+                  error={!!fieldErrors.amount}
+                  helperText={fieldErrors.amount}
+                />
+              </Grid>
 
-              <TextField
-                label="Amount Requested"
-                type="number"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, amount: "", term: "" }));
-                }}
-                placeholder="2000000"
-                fullWidth
-                error={!!fieldErrors.amount}
-                helperText={fieldErrors.amount}
-              />
+              <Grid item xs={12} md={6}>
+                <TextField
+                  label="Payment Plan"
+                  type="number"
+                  value={paymentPlan}
+                  onChange={(e) => {
+                    setPaymentPlan(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, paymentPlan: "", term: "" }));
+                  }}
+                  placeholder="150000"
+                  fullWidth
+                  error={!!fieldErrors.paymentPlan}
+                  helperText={fieldErrors.paymentPlan}
+                />
+              </Grid>
 
               {selectedClientId ? (
                 <>
-                  <Stack spacing={1}>
-                    <Typography variant="body2" color="text.secondary">
-                      Creditline Mode
-                    </Typography>
-                    <ToggleButtonGroup
-                      exclusive
-                      value={creditlineMode}
-                      onChange={(_, value) => {
-                        if (!value) return;
-                        setCreditlineMode(value);
-                        setFieldErrors((prev) => ({ ...prev, creditline: "", interestRate: "" }));
+                  <Grid item xs={12}>
+                    <Stack spacing={1}>
+                      <Typography variant="body2" color="text.secondary">
+                        Creditline Mode
+                      </Typography>
+                      <ToggleButtonGroup
+                        exclusive
+                        value={creditlineMode}
+                        onChange={(_, value) => {
+                          if (!value) return;
+                          setCreditlineMode(value);
+                          setFieldErrors((prev) => ({ ...prev, creditline: "", interestRate: "" }));
 
-                        if (value === "existing") {
-                          const firstAvailable = creditlineOptions.find((row) => row?.is_available !== false) || creditlineOptions[0];
-                          setCreditline(firstAvailable?.creditline || "");
-                          setInterestRate("");
-                        } else {
-                          setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }, creditlineOptions));
-                        }
-                      }}
-                      size="small"
-                    >
-                      <ToggleButton value="existing">Use Existing</ToggleButton>
-                      <ToggleButton value="new">Create New</ToggleButton>
-                    </ToggleButtonGroup>
-                  </Stack>
+                          if (value === "existing") {
+                            const firstAvailable = creditlineOptions.find((row) => row?.is_available !== false) || creditlineOptions[0];
+                            setCreditline(firstAvailable?.creditline || "");
+                            setInterestRate("");
+                          } else {
+                            setCreditline(buildDefaultCreditline(selectedClient || { id: selectedClientId }, creditlineOptions));
+                          }
+                        }}
+                        size="small"
+                        orientation={isMobile ? "vertical" : "horizontal"}
+                        fullWidth={isMobile}
+                      >
+                        <ToggleButton value="existing">Use Existing</ToggleButton>
+                        <ToggleButton value="new">Create New</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Stack>
+                  </Grid>
 
                   {creditlineMode === "existing" ? (
-                    <TextField
-                      select
-                      label="Existing Creditline"
-                      value={creditline}
-                      onChange={(e) => {
-                        setCreditline(e.target.value);
-                        setFieldErrors((prev) => ({ ...prev, creditline: "" }));
-                      }}
-                      fullWidth
-                      error={!!fieldErrors.creditline}
-                      helperText={fieldErrors.creditline || "Choose one of the client's creditlines."}
-                      disabled={loadingCreditlines || creditlineOptions.length === 0}
-                    >
-                      {creditlineOptions.length === 0 ? (
-                        <MenuItem value="">No creditlines found</MenuItem>
-                      ) : (
-                        creditlineOptions.map((option) => (
-                          <MenuItem
-                            key={option.id || option.creditline}
-                            value={option.creditline}
-                            disabled={option.is_available === false}
-                          >
-                            {option.creditline}
-                            {option.is_available === false ? " (already linked)" : ""}
-                          </MenuItem>
-                        ))
-                      )}
-                    </TextField>
-                  ) : (
-                    <>
+                    <Grid item xs={12}>
                       <TextField
-                        label="New Creditline"
+                        select
+                        label="Existing Creditline"
                         value={creditline}
                         onChange={(e) => {
                           setCreditline(e.target.value);
@@ -423,94 +412,116 @@ export default function NewApplication() {
                         }}
                         fullWidth
                         error={!!fieldErrors.creditline}
-                        helperText={fieldErrors.creditline || "A new creditline will be created for this application."}
-                      />
-                      <TextField
-                        label="Interest Rate"
-                        type="number"
-                        value={interestRate}
-                        onChange={(e) => {
-                          setInterestRate(e.target.value);
-                          setFieldErrors((prev) => ({ ...prev, interestRate: "" }));
-                        }}
-                        placeholder="18"
-                        fullWidth
-                        error={!!fieldErrors.interestRate}
-                        helperText={fieldErrors.interestRate || "Required when creating a new creditline."}
-                      />
+                        helperText={fieldErrors.creditline || "Choose one of the client's creditlines."}
+                        disabled={loadingCreditlines || creditlineOptions.length === 0}
+                      >
+                        {creditlineOptions.length === 0 ? (
+                          <MenuItem value="">No creditlines found</MenuItem>
+                        ) : (
+                          creditlineOptions.map((option) => (
+                            <MenuItem
+                              key={option.id || option.creditline}
+                              value={option.creditline}
+                              disabled={option.is_available === false}
+                            >
+                              {option.creditline}
+                              {option.is_available === false ? " (already linked)" : ""}
+                            </MenuItem>
+                          ))
+                        )}
+                      </TextField>
+                    </Grid>
+                  ) : (
+                    <>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          label="New Creditline"
+                          value={creditline}
+                          onChange={(e) => {
+                            setCreditline(e.target.value);
+                            setFieldErrors((prev) => ({ ...prev, creditline: "" }));
+                          }}
+                          fullWidth
+                          error={!!fieldErrors.creditline}
+                          helperText={fieldErrors.creditline || "A new creditline will be created for this application."}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={6}>
+                        <TextField
+                          label="Interest Rate"
+                          type="number"
+                          value={interestRate}
+                          onChange={(e) => {
+                            setInterestRate(e.target.value);
+                            setFieldErrors((prev) => ({ ...prev, interestRate: "" }));
+                          }}
+                          placeholder="18"
+                          fullWidth
+                          error={!!fieldErrors.interestRate}
+                          helperText={fieldErrors.interestRate || "Required when creating a new creditline."}
+                        />
+                      </Grid>
                     </>
                   )}
 
                   {creditlineError && (
-                    <Alert severity="warning">{creditlineError}</Alert>
+                    <Grid item xs={12}>
+                      <Alert severity="warning">{creditlineError}</Alert>
+                    </Grid>
                   )}
-
                 </>
               ) : (
-                <Alert severity="info">
-                  Select a client to load available creditlines.
-                </Alert>
+                <Grid item xs={12}>
+                  <Alert severity="info">
+                    Select a client to load available creditlines.
+                  </Alert>
+                </Grid>
               )}
 
-              <TextField
-                label="Payment Plan"
-                type="number"
-                value={paymentPlan}
-                onChange={(e) => {
-                  setPaymentPlan(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, paymentPlan: "", term: "" }));
-                }}
-                placeholder="150000"
-                fullWidth
-                error={!!fieldErrors.paymentPlan}
-                helperText={fieldErrors.paymentPlan}
-              />
+              <Grid item xs={12} md={7}>
+                <TextField
+                  label="Purpose"
+                  value={purpose}
+                  onChange={(e) => {
+                    setPurpose(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, purpose: "" }));
+                  }}
+                  placeholder="Business expansion"
+                  fullWidth
+                  error={!!fieldErrors.purpose}
+                  helperText={fieldErrors.purpose}
+                />
+              </Grid>
 
-              <TextField
-                label="Purpose"
-                value={purpose}
-                onChange={(e) => {
-                  setPurpose(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, purpose: "" }));
-                }}
-                placeholder="Business expansion"
-                fullWidth
-                error={!!fieldErrors.purpose}
-                helperText={fieldErrors.purpose}
-              />
-
-              <TextField
-                label="Term Requested (months)"
-                type="number"
-                value={term}
-                InputProps={{ readOnly: true }}
-                placeholder="12"
-                fullWidth
-                error={!!fieldErrors.term}
-                helperText={
-                  fieldErrors.term ||
-                  "Auto-calculated as Amount Requested divided by Payment Plan."
-                }
-              />
-
-            </Stack>
+              <Grid item xs={12} md={5}>
+                <TextField
+                  label="Term Requested (months)"
+                  type="number"
+                  value={term}
+                  InputProps={{ readOnly: true }}
+                  placeholder="12"
+                  fullWidth
+                  error={!!fieldErrors.term}
+                  helperText={
+                    fieldErrors.term ||
+                    "Auto-calculated as Amount Requested divided by Payment Plan."
+                  }
+                />
+              </Grid>
+            </Grid>
           </Box>
-
-          {/* SUBMIT BUTTON */}
 
           <Button
             variant="contained"
             size="large"
             onClick={submit}
             disabled={saving}
+            fullWidth={isMobile}
           >
             {saving ? "Creating Application..." : "Create Application"}
           </Button>
-
         </Stack>
-
       </Paper>
-
     </Box>
   );
 }

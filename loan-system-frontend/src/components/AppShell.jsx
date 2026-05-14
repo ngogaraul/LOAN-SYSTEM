@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useNavigate, Link as RouterLink, useLocation } from "react-router-dom";
 import { clearAuth, getAuth } from "../auth/auth";
 import api from "../api/client";
@@ -18,6 +19,9 @@ import {
   Stack,
   IconButton,
   Tooltip,
+  useMediaQuery,
+  ListItem,
+  Chip,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
@@ -30,17 +34,24 @@ import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
 import AccountBalanceIcon from "@mui/icons-material/AccountBalance";
 import DarkModeIcon from "@mui/icons-material/DarkMode";
 import LightModeIcon from "@mui/icons-material/LightMode";
+import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import LogoutIcon from "@mui/icons-material/Logout";
 
-const drawerWidth = 260;
+const drawerWidth = 268;
 
 export default function AppShell({ children, colorMode = "light", onToggleColorMode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("lg"));
+  const isTabletUp = useMediaQuery(theme.breakpoints.up("md"));
   const isDark = theme.palette.mode === "dark";
   const auth = getAuth();
   const role = String(auth?.role || "ANALYST").toUpperCase();
   const portalLabel = role === "ADMIN" ? "Admin Portal" : "Analyst Portal";
+  const roleSummary = role === "ADMIN" ? "Operations and approvals" : "Assessment workspace";
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   async function logout() {
     try {
@@ -58,106 +69,262 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
     return location.pathname.startsWith(path);
   }
 
+  const pageTitle = useMemo(() => {
+    const path = location.pathname;
+    if (path === "/") return "Dashboard";
+    if (path.startsWith("/applications/new")) return "New Application";
+    if (path.startsWith("/applications/")) return "Application Details";
+    if (path.startsWith("/applications")) return "Applications";
+    if (path.startsWith("/clients/new")) return "New Client";
+    if (path.startsWith("/clients/")) return "Client Details";
+    if (path.startsWith("/clients")) return "Clients";
+    if (path.startsWith("/admin")) return "Administration";
+    return "Loan Management";
+  }, [location.pathname]);
+
+  const pageSubtitle = useMemo(() => {
+    const path = location.pathname;
+    if (path === "/") return "Daily pipeline, risk movement, and recent activity.";
+    if (path.startsWith("/applications/new")) return "Create a clean application record with the right client and creditline.";
+    if (path.startsWith("/applications/")) return "Review scoring, decisions, and financial context.";
+    if (path.startsWith("/applications")) return "Track submitted, scored, approved, and rejected applications.";
+    if (path.startsWith("/clients/new")) return "Register a new borrower before loan assessment begins.";
+    if (path.startsWith("/clients/")) return "Inspect profile details and historical creditline records.";
+    if (path.startsWith("/clients")) return "Search, review, and maintain borrower records.";
+    if (path.startsWith("/admin")) return "Manage access and administrative operations.";
+    return "Loan assessment workspace.";
+  }, [location.pathname]);
+
+  const navSections = [
+    {
+      label: "Workspace",
+      items: [
+        { to: "/", label: "Dashboard", icon: <DashboardIcon /> },
+        { to: "/applications", label: "Applications", icon: <AssignmentIcon /> },
+        { to: "/clients", label: "Clients", icon: <PeopleIcon /> },
+      ],
+    },
+    {
+      label: "Create",
+      items: [
+        { to: "/clients/new", label: "New Client", icon: <PersonAddIcon /> },
+        { to: "/applications/new", label: "New Application", icon: <NoteAddIcon /> },
+        ...(role === "ADMIN"
+          ? [{ to: "/admin", label: "Admin", icon: <AdminPanelSettingsIcon /> }]
+          : []),
+      ],
+    },
+  ];
+
   const navItemSx = (path) => ({
     mx: 1.2,
     mb: 0.5,
-    borderRadius: 2,
-    minHeight: 46,
+    borderRadius: 2.25,
+    minHeight: 50,
     backgroundColor: isActive(path)
       ? (isDark ? "rgba(127, 179, 255, 0.16)" : "rgba(25, 118, 210, 0.10)")
       : "transparent",
     color: isActive(path) ? "primary.main" : "text.primary",
+    border: `1px solid ${
+      isActive(path)
+        ? (isDark ? "rgba(127, 179, 255, 0.24)" : "rgba(25, 118, 210, 0.18)")
+        : "transparent"
+    }`,
     "& .MuiListItemIcon-root": {
       color: isActive(path) ? "primary.main" : "text.secondary",
       minWidth: 38,
     },
     "&:hover": {
       backgroundColor: isDark ? "rgba(127, 179, 255, 0.10)" : "rgba(25, 118, 210, 0.08)",
+      borderColor: isDark ? "rgba(127, 179, 255, 0.20)" : "rgba(25, 118, 210, 0.14)",
     },
   });
 
-  return (
-    <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
-      {/* SIDEBAR */}
-      <Drawer
-        variant="permanent"
-        sx={{
-          width: drawerWidth,
-          flexShrink: 0,
-          [`& .MuiDrawer-paper`]: {
-            width: drawerWidth,
-            boxSizing: "border-box",
-            borderRight: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "#e6eaf2"}`,
+  const drawerContent = (
+    <>
+      <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
+        <Box
+          sx={{
+            p: 2,
+            borderRadius: 3,
             background: isDark
-              ? "linear-gradient(180deg, #111827 0%, #0f172a 100%)"
-              : "linear-gradient(180deg, #ffffff 0%, #f9fbff 100%)",
-          },
-        }}
-      >
-        <Box sx={{ px: 2.5, py: 2.5 }}>
+              ? "linear-gradient(160deg, rgba(30, 41, 59, 0.96), rgba(15, 23, 42, 0.82))"
+              : "linear-gradient(160deg, rgba(240, 246, 255, 0.96), rgba(255, 255, 255, 0.88))",
+            border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.10)"}`,
+            boxShadow: isDark ? "none" : "0 12px 30px rgba(15, 23, 42, 0.05)",
+          }}
+        >
           <Stack direction="row" spacing={1.5} alignItems="center">
             <Avatar
               sx={{
                 bgcolor: "primary.main",
-                width: 42,
-                height: 42,
+                width: 46,
+                height: 46,
+                boxShadow: "0 8px 18px rgba(37, 99, 235, 0.22)",
               }}
             >
               <AccountBalanceIcon />
             </Avatar>
-            <Box>
-              <Typography variant="subtitle1" fontWeight={700}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="subtitle1" fontWeight={800} noWrap>
                 Loan System
               </Typography>
-              <Typography variant="caption" color="text.secondary">
+              <Typography variant="caption" color="text.secondary" noWrap>
                 {portalLabel}
               </Typography>
             </Box>
           </Stack>
+
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.75 }}>
+            <Chip size="small" color="primary" variant={isDark ? "filled" : "outlined"} label={role} />
+            <Chip size="small" variant="outlined" label={colorMode === "dark" ? "Night mode" : "Day mode"} />
+          </Stack>
+
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, lineHeight: 1.5 }}>
+            {roleSummary}
+          </Typography>
         </Box>
+      </Box>
 
-        <Divider />
+      <Divider sx={{ mx: 2 }} />
 
-        <List sx={{ pt: 1.2 }}>
-          <ListItemButton component={RouterLink} to="/" sx={navItemSx("/")}>
-            <ListItemIcon><DashboardIcon /></ListItemIcon>
-            <ListItemText primary="Dashboard" />
-          </ListItemButton>
+      <List sx={{ pt: 1.2, pb: 0, flexGrow: 1 }}>
+        {navSections.map((section) => (
+          <Box key={section.label} sx={{ mb: 1 }}>
+            <Typography
+              variant="overline"
+              color="text.secondary"
+              sx={{ px: 2.5, display: "block", letterSpacing: "0.12em" }}
+            >
+              {section.label}
+            </Typography>
+            {section.items.map((item) => (
+              <ListItemButton
+                key={item.to}
+                component={RouterLink}
+                to={item.to}
+                sx={navItemSx(item.to)}
+                onClick={() => setMobileOpen(false)}
+              >
+                <ListItemIcon>{item.icon}</ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  secondary={isActive(item.to) ? "Current section" : null}
+                  secondaryTypographyProps={{ variant: "caption" }}
+                />
+              </ListItemButton>
+            ))}
+          </Box>
+        ))}
+      </List>
 
-          <ListItemButton component={RouterLink} to="/applications" sx={navItemSx("/applications")}>
-            <ListItemIcon><AssignmentIcon /></ListItemIcon>
-            <ListItemText primary="Applications" />
-          </ListItemButton>
+      <Box sx={{ px: 2, pb: 2, pt: 1 }}>
+        <Box
+          sx={{
+            p: 1.5,
+            borderRadius: 2.5,
+            backgroundColor: isDark ? "rgba(148, 163, 184, 0.08)" : "rgba(15, 23, 42, 0.03)",
+            border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.12)" : "rgba(148, 163, 184, 0.18)"}`,
+          }}
+        >
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
+            Quick note
+          </Typography>
+          <Typography variant="body2" sx={{ lineHeight: 1.5 }}>
+            Use the drawer on smaller screens. Navigation stays one tap away without crowding the workspace.
+          </Typography>
+        </Box>
+      </Box>
 
-          <ListItemButton component={RouterLink} to="/clients" sx={navItemSx("/clients")}>
-            <ListItemIcon><PeopleIcon /></ListItemIcon>
-            <ListItemText primary="Clients" />
-          </ListItemButton>
+      <Divider />
 
-          <Divider sx={{ my: 1.5, mx: 2 }} />
+      <List sx={{ py: 1.2 }}>
+        <ListItem sx={{ px: 2.2, pt: 0.5 }}>
+          <Button
+            fullWidth
+            variant={isDesktop ? "contained" : "outlined"}
+            color="inherit"
+            onClick={logout}
+            startIcon={<LogoutIcon />}
+          >
+            Logout
+          </Button>
+        </ListItem>
+      </List>
+    </>
+  );
 
-          <ListItemButton component={RouterLink} to="/clients/new" sx={navItemSx("/clients/new")}>
-            <ListItemIcon><PersonAddIcon /></ListItemIcon>
-            <ListItemText primary="New Client" />
-          </ListItemButton>
+  return (
+    <Box
+      sx={{
+        display: "flex",
+        minHeight: "100vh",
+        bgcolor: "background.default",
+        backgroundImage: isDark
+          ? "radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 34%), radial-gradient(circle at bottom right, rgba(16, 185, 129, 0.06), transparent 26%)"
+          : "radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 30%), radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.06), transparent 22%)",
+      }}
+    >
+      {isDesktop && (
+        <Drawer
+          variant="permanent"
+          sx={{
+            width: drawerWidth,
+            flexShrink: 0,
+            [`& .MuiDrawer-paper`]: {
+              width: drawerWidth,
+              boxSizing: "border-box",
+              borderRight: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "#e6eaf2"}`,
+              background: isDark
+                ? "linear-gradient(180deg, #111827 0%, #0f172a 100%)"
+                : "linear-gradient(180deg, #ffffff 0%, #f9fbff 100%)",
+            },
+          }}
+        >
+          {drawerContent}
+        </Drawer>
+      )}
 
-          <ListItemButton component={RouterLink} to="/applications/new" sx={navItemSx("/applications/new")}>
-            <ListItemIcon><NoteAddIcon /></ListItemIcon>
-            <ListItemText primary="New Application" />
-          </ListItemButton>
+      {!isDesktop && (
+        <Drawer
+          variant="temporary"
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          ModalProps={{ keepMounted: true }}
+          sx={{
+            display: { xs: "block", lg: "none" },
+            [`& .MuiDrawer-paper`]: {
+              width: { xs: "86vw", sm: 320 },
+              maxWidth: 340,
+              boxSizing: "border-box",
+              borderRight: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "#e6eaf2"}`,
+              background: isDark
+                ? "linear-gradient(180deg, #111827 0%, #0f172a 100%)"
+                : "linear-gradient(180deg, #ffffff 0%, #f9fbff 100%)",
+            },
+          }}
+        >
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              px: 1.5,
+              pt: 1.2,
+            }}
+          >
+            <Typography variant="subtitle2" color="text.secondary" sx={{ pl: 1 }}>
+              Navigation
+            </Typography>
+            <IconButton onClick={() => setMobileOpen(false)} aria-label="Close navigation">
+              <ChevronLeftIcon />
+            </IconButton>
+          </Box>
+          {drawerContent}
+        </Drawer>
+      )}
 
-          {role === "ADMIN" && (
-            <ListItemButton component={RouterLink} to="/admin" sx={navItemSx("/admin")}>
-              <ListItemIcon><AdminPanelSettingsIcon /></ListItemIcon>
-              <ListItemText primary="Admin" />
-            </ListItemButton>
-          )}
-        </List>
-      </Drawer>
-
-      {/* RIGHT SIDE */}
       <Box sx={{ flexGrow: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* TOP BAR */}
         <AppBar
           position="sticky"
           elevation={0}
@@ -168,36 +335,92 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
             backdropFilter: "blur(10px)",
           }}
         >
-          <Toolbar sx={{ minHeight: "72px !important", px: 3 }}>
-            <Typography variant="h6" fontWeight={700} sx={{ flexGrow: 1 }}>
-              Loan Management Dashboard
-            </Typography>
-            <Tooltip title={colorMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
-              <IconButton onClick={onToggleColorMode} color="primary" sx={{ mr: 1 }}>
-                {colorMode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
+          <Toolbar
+            sx={{
+              minHeight: { xs: "74px !important", md: "78px !important" },
+              px: { xs: 1.25, sm: 2.5, md: 3 },
+              gap: 1,
+            }}
+          >
+            {!isDesktop && (
+              <IconButton
+                edge="start"
+                aria-label="Open navigation"
+                onClick={() => setMobileOpen(true)}
+                color="primary"
+                sx={{
+                  border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.16)"}`,
+                  borderRadius: 2.5,
+                }}
+              >
+                <MenuIcon />
               </IconButton>
-            </Tooltip>
-            <Button variant="outlined" onClick={logout}>
-              Logout
-            </Button>
+            )}
+
+            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.25 }}>
+                <Typography variant={isTabletUp ? "h6" : "subtitle1"} fontWeight={800} noWrap>
+                  {pageTitle}
+                </Typography>
+                {isTabletUp && (
+                  <Chip size="small" variant="outlined" color="primary" label={portalLabel} />
+                )}
+              </Stack>
+              <Typography variant="body2" color="text.secondary" noWrap={!isDesktop}>
+                {pageSubtitle}
+              </Typography>
+              {!isDesktop && (
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block", mt: 0.25 }}>
+                  {portalLabel}
+                </Typography>
+              )}
+            </Box>
+
+            <Stack direction="row" spacing={0.5} alignItems="center">
+              <Tooltip title={colorMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+                <IconButton
+                  onClick={onToggleColorMode}
+                  color="primary"
+                  sx={{
+                    border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.16)"}`,
+                    borderRadius: 2.5,
+                  }}
+                >
+                  {colorMode === "dark" ? <LightModeIcon /> : <DarkModeIcon />}
+                </IconButton>
+              </Tooltip>
+
+              {isTabletUp ? (
+                <Button variant="outlined" onClick={logout} startIcon={<LogoutIcon />}>
+                  Logout
+                </Button>
+              ) : (
+                <Tooltip title="Logout">
+                  <IconButton
+                    onClick={logout}
+                    color="primary"
+                    sx={{
+                      border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.16)"}`,
+                      borderRadius: 2.5,
+                    }}
+                  >
+                    <LogoutIcon />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Stack>
           </Toolbar>
         </AppBar>
 
-        {/* MAIN CONTENT */}
         <Box
           component="main"
           sx={{
             flexGrow: 1,
-            px: { xs: 2, md: 3 },
-            py: 3,
+            px: { xs: 1.25, sm: 2, md: 3 },
+            py: { xs: 1.5, md: 3 },
           }}
         >
-          <Box
-            sx={{
-              maxWidth: "100%",
-              mx: "auto",
-            }}
-          >
+          <Box sx={{ maxWidth: 1400, mx: "auto" }}>
             {children}
           </Box>
         </Box>

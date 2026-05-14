@@ -257,37 +257,72 @@ export default function ApplicationDetails() {
         sx={{ mb: 2 }}
       >
         <Box>
-          <Typography variant="h5">
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>
             Application #{app.id}{" "}
             <Chip size="small" label={app.status} color={statusColor(app.status)} sx={{ ml: 1 }} />
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Submitted: {fmtDate(app.submitted_at)}
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Review scoring, financial context, and decision history from one place.
+          </Typography>
         </Box>
 
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
-          <Button variant="outlined" onClick={load} disabled={actionLoading}>Refresh</Button>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          sx={{ width: { xs: "100%", md: "auto" } }}
+        >
+          <Button variant="outlined" onClick={load} disabled={actionLoading} fullWidth={isMobile}>
+            Refresh
+          </Button>
 
-          <Button variant="contained" onClick={scoreNow} disabled={actionLoading || isFinalized}>
+          <Button variant="contained" onClick={scoreNow} disabled={actionLoading || isFinalized} fullWidth={isMobile}>
             Score
           </Button>
 
-          <Tooltip title={canEditApp ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
-            <span>
-              <IconButton onClick={openEdit} disabled={!canEditApp || actionLoading}>
-                <EditIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+          {isMobile ? (
+            <>
+              <Button
+                variant="outlined"
+                onClick={openEdit}
+                disabled={!canEditApp || actionLoading}
+                startIcon={<EditIcon />}
+                fullWidth
+              >
+                Edit
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => setDelOpen(true)}
+                disabled={!canDeleteApp || actionLoading}
+                startIcon={<DeleteIcon />}
+                fullWidth
+              >
+                Delete
+              </Button>
+            </>
+          ) : (
+            <>
+              <Tooltip title={canEditApp ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
+                <span>
+                  <IconButton onClick={openEdit} disabled={!canEditApp || actionLoading}>
+                    <EditIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
 
-          <Tooltip title={canDeleteApp ? "Delete" : "Delete not allowed"}>
-            <span>
-              <IconButton color="error" onClick={() => setDelOpen(true)} disabled={!canDeleteApp || actionLoading}>
-                <DeleteIcon />
-              </IconButton>
-            </span>
-          </Tooltip>
+              <Tooltip title={canDeleteApp ? "Delete" : "Delete not allowed"}>
+                <span>
+                  <IconButton color="error" onClick={() => setDelOpen(true)} disabled={!canDeleteApp || actionLoading}>
+                    <DeleteIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </>
+          )}
         </Stack>
       </Stack>
 
@@ -298,7 +333,7 @@ export default function ApplicationDetails() {
       )}
 
       <Paper sx={{ mb: 2, overflow: "hidden" }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant={isMobile ? "scrollable" : "fullWidth"} allowScrollButtonsMobile>
           <Tab label="Overview" />
           <Tab label="Model Output" />
           <Tab label="Decisions" />
@@ -505,7 +540,7 @@ export default function ApplicationDetails() {
       )}
 
       {/* EDIT DIALOG */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Edit Application</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -555,7 +590,7 @@ export default function ApplicationDetails() {
       </Dialog>
 
       {/* DELETE CONFIRM */}
-      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Delete Application?</DialogTitle>
         <DialogContent>
           <Typography>

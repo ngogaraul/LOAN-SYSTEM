@@ -2,11 +2,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { useSnackbar } from "notistack";
-import { Box, Paper, Typography, TextField, Button, Stack } from "@mui/material";
+import { Box, Paper, Typography, TextField, Button, Stack, useMediaQuery } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 export default function NewClient() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [account, setAccount] = useState("");
   const [fullName, setFullName] = useState("");
@@ -67,8 +70,13 @@ export default function NewClient() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Create Client</Typography>
-      <Paper sx={{ p: 2, maxWidth: 650 }}>
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="h5" sx={{ fontWeight: 800 }}>Create Client</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Start with a clean borrower profile so later scoring and decisions have the right customer context.
+        </Typography>
+      </Box>
+      <Paper sx={{ p: { xs: 1.5, sm: 2.5 }, maxWidth: 720, borderRadius: 3 }}>
         <Stack spacing={2}>
           <TextField
             label="Account (unique)"
@@ -106,7 +114,7 @@ export default function NewClient() {
             helperText={errors.phone || "Use digits only, or start with +."}
             inputProps={{ inputMode: "tel" }}
           />
-          <Button variant="contained" onClick={submit} disabled={loading}>
+          <Button variant="contained" onClick={submit} disabled={loading} fullWidth={isMobile}>
             {loading ? "Saving..." : "Create Client"}
           </Button>
         </Stack>

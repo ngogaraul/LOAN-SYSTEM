@@ -5,10 +5,30 @@ import { useSnackbar } from "notistack";
 import { getAuth } from "../auth/auth";
 
 import {
-  Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
-  TextField, MenuItem, Button, Stack, Chip, CircularProgress, IconButton,
-  Tooltip, Dialog, DialogTitle, DialogContent, DialogActions
+  Box,
+  Typography,
+  Paper,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  TextField,
+  MenuItem,
+  Button,
+  Stack,
+  Chip,
+  CircularProgress,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TableContainer,
+  useMediaQuery,
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -37,6 +57,8 @@ function calculateTermMonths(amount, paymentPlan) {
 export default function Applications() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const auth = getAuth();
   const role = auth?.role || "ANALYST";
@@ -50,28 +72,24 @@ export default function Applications() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  // EDIT dialog
   const [editOpen, setEditOpen] = useState(false);
   const [editRow, setEditRow] = useState(null);
   const [editForm, setEditForm] = useState({ amount_requested: "", payment_plan: "", purpose: "", term_requested: "" });
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // DELETE dialog
   const [delOpen, setDelOpen] = useState(false);
   const [delRow, setDelRow] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
-  const rules = useMemo(() => {
-    return {
-      canEdit: (row) => row?.status === "SUBMITTED",
-      canDelete: (row) => {
-        if (!row) return false;
-        if (row.status === "APPROVED" || row.status === "REJECTED") return false;
-        if (role === "ADMIN") return row.status === "SUBMITTED" || row.status === "SCORED";
-        return row.status === "SUBMITTED";
-      },
-    };
-  }, [role]);
+  const rules = useMemo(() => ({
+    canEdit: (row) => row?.status === "SUBMITTED",
+    canDelete: (row) => {
+      if (!row) return false;
+      if (row.status === "APPROVED" || row.status === "REJECTED") return false;
+      if (role === "ADMIN") return row.status === "SUBMITTED" || row.status === "SCORED";
+      return row.status === "SUBMITTED";
+    },
+  }), [role]);
 
   async function load() {
     setErr("");
@@ -158,9 +176,23 @@ export default function Applications() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Applications</Typography>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", md: "center" }}
+        spacing={1.5}
+        sx={{ mb: 2 }}
+      >
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>Applications</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search, review, and act on submitted loan applications across the workflow.
+          </Typography>
+        </Box>
+        <Chip label={`${items.length} shown${status ? ` - ${status}` : ""}`} color="primary" variant="outlined" />
+      </Stack>
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+      <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
           <TextField
             select
@@ -169,8 +201,8 @@ export default function Applications() {
             onChange={(e) => { setStatus(e.target.value); setPage(1); }}
             sx={{ minWidth: 180 }}
           >
-            {STATUSES.map(s => (
-              <MenuItem key={s} value={s}>{s || "ALL"}</MenuItem>
+            {STATUSES.map((item) => (
+              <MenuItem key={item} value={item}>{item || "ALL"}</MenuItem>
             ))}
           </TextField>
 
@@ -188,115 +220,189 @@ export default function Applications() {
         {err && <Typography sx={{ mt: 2 }} color="error">{err}</Typography>}
       </Paper>
 
-      <Paper>
+      <Paper sx={{ borderRadius: 3, overflow: "hidden" }}>
         {loading ? (
           <Box sx={{ p: 4, display: "flex", justifyContent: "center" }}>
             <CircularProgress />
           </Box>
-        ) : (
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>ID</TableCell>
-                <TableCell>Account</TableCell>
-                <TableCell>Client</TableCell>
-                <TableCell>Amount</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Submitted</TableCell>
-                <TableCell align="right">Actions</TableCell>
-              </TableRow>
-            </TableHead>
+        ) : items.length === 0 ? (
+          <Box sx={{ p: 3 }}>
+            <Typography color="text.secondary">No applications found.</Typography>
+          </Box>
+        ) : isMobile ? (
+          <Stack spacing={1.5} sx={{ p: 1.5 }}>
+            {items.map((application) => (
+              <Paper
+                key={application.id}
+                variant="outlined"
+                sx={{
+                  p: 1.5,
+                  borderRadius: 3,
+                  cursor: "pointer",
+                  transition: "transform 120ms ease, box-shadow 120ms ease",
+                  "&:hover": {
+                    transform: "translateY(-1px)",
+                    boxShadow: 3,
+                  },
+                }}
+                onClick={() => navigate(`/applications/${application.id}`)}
+              >
+                <Stack spacing={1.2}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                        #{application.id} - {application.client?.account || "-"}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" noWrap>
+                        {application.client?.full_name || "-"}
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label={application.status} color={statusColor(application.status)} />
+                  </Stack>
 
-            <TableBody>
-              {items.map((a) => (
-                <TableRow
-                  key={a.id}
-                  hover
-                  sx={{ cursor: "pointer" }}
-                  onClick={() => navigate(`/applications/${a.id}`)}
-                >
-                  <TableCell>{a.id}</TableCell>
-                  <TableCell>{a.client?.account || "-"}</TableCell>
-                  <TableCell>{a.client?.full_name || "-"}</TableCell>
-                  <TableCell>{Number(a.amount_requested || 0).toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Chip size="small" label={a.status} color={statusColor(a.status)} />
-                  </TableCell>
-                  <TableCell>{a.submitted_at}</TableCell>
+                  <Stack direction="row" justifyContent="space-between" spacing={2}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Amount</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {Number(application.amount_requested || 0).toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ textAlign: "right" }}>
+                      <Typography variant="caption" color="text.secondary">Submitted</Typography>
+                      <Typography variant="body2">{application.submitted_at}</Typography>
+                    </Box>
+                  </Stack>
 
-                  {/* ACTIONS */}
-                  <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                    <Tooltip title={rules.canEdit(a) ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
+                  <Stack direction="row" justifyContent="flex-end" spacing={0.5} onClick={(e) => e.stopPropagation()}>
+                    <Tooltip title={rules.canEdit(application) ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
                       <span>
-                        <IconButton size="small" disabled={!rules.canEdit(a)} onClick={() => openEdit(a)}>
+                        <IconButton size="small" disabled={!rules.canEdit(application)} onClick={() => openEdit(application)}>
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </span>
                     </Tooltip>
 
-                    <Tooltip title={rules.canDelete(a) ? "Delete" : "Delete not allowed"}>
+                    <Tooltip title={rules.canDelete(application) ? "Delete" : "Delete not allowed"}>
                       <span>
                         <IconButton
                           size="small"
                           color="error"
-                          disabled={!rules.canDelete(a)}
-                          onClick={() => openDelete(a)}
+                          disabled={!rules.canDelete(application)}
+                          onClick={() => openDelete(application)}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </span>
                     </Tooltip>
-                  </TableCell>
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        ) : (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>ID</TableCell>
+                  <TableCell>Account</TableCell>
+                  <TableCell>Client</TableCell>
+                  <TableCell>Amount</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell>Submitted</TableCell>
+                  <TableCell align="right">Actions</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+
+              <TableBody>
+                {items.map((application) => (
+                  <TableRow
+                    key={application.id}
+                    hover
+                    sx={{ cursor: "pointer" }}
+                    onClick={() => navigate(`/applications/${application.id}`)}
+                  >
+                    <TableCell>{application.id}</TableCell>
+                    <TableCell>{application.client?.account || "-"}</TableCell>
+                    <TableCell>{application.client?.full_name || "-"}</TableCell>
+                    <TableCell>{Number(application.amount_requested || 0).toLocaleString()}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={application.status} color={statusColor(application.status)} />
+                    </TableCell>
+                    <TableCell>{application.submitted_at}</TableCell>
+
+                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title={rules.canEdit(application) ? "Edit (SUBMITTED only)" : "Only SUBMITTED can be edited"}>
+                        <span>
+                          <IconButton size="small" disabled={!rules.canEdit(application)} onClick={() => openEdit(application)}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip title={rules.canDelete(application) ? "Delete" : "Delete not allowed"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={!rules.canDelete(application)}
+                            onClick={() => openDelete(application)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         )}
       </Paper>
 
-      <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-        <Button variant="outlined" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</Button>
-        <Typography sx={{ mt: 1 }}>Page {page}</Typography>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }} alignItems={{ xs: "stretch", sm: "center" }}>
+        <Button variant="outlined" disabled={page <= 1} onClick={() => setPage((currentPage) => currentPage - 1)}>Prev</Button>
+        <Typography sx={{ px: { sm: 1 } }}>Page {page}</Typography>
         <Button
           variant="outlined"
           disabled={items.length < pageSize}
-          onClick={() => setPage(p => p + 1)}
+          onClick={() => setPage((currentPage) => currentPage + 1)}
         >
           Next
         </Button>
       </Stack>
 
-      {/* EDIT DIALOG */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Edit Application</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               label="Amount Requested"
               value={editForm.amount_requested}
-              onChange={(e) => setEditForm(p => {
+              onChange={(e) => setEditForm((currentForm) => {
                 const amountRequested = e.target.value;
                 return {
-                  ...p,
+                  ...currentForm,
                   amount_requested: amountRequested,
-                  term_requested: calculateTermMonths(amountRequested, p.payment_plan),
+                  term_requested: calculateTermMonths(amountRequested, currentForm.payment_plan),
                 };
               })}
             />
             <TextField
               label="Purpose"
               value={editForm.purpose}
-              onChange={(e) => setEditForm(p => ({ ...p, purpose: e.target.value }))}
+              onChange={(e) => setEditForm((currentForm) => ({ ...currentForm, purpose: e.target.value }))}
             />
             <TextField
               label="Payment Plan"
               value={editForm.payment_plan}
-              onChange={(e) => setEditForm(p => {
+              onChange={(e) => setEditForm((currentForm) => {
                 const paymentPlan = e.target.value;
                 return {
-                  ...p,
+                  ...currentForm,
                   payment_plan: paymentPlan,
-                  term_requested: calculateTermMonths(p.amount_requested, paymentPlan),
+                  term_requested: calculateTermMonths(currentForm.amount_requested, paymentPlan),
                 };
               })}
             />
@@ -316,8 +422,7 @@ export default function Applications() {
         </DialogActions>
       </Dialog>
 
-      {/* DELETE CONFIRM */}
-      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Delete Application?</DialogTitle>
         <DialogContent>
           <Typography>

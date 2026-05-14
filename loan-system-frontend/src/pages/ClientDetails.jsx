@@ -4,28 +4,50 @@ import api from "../api/client";
 import { useSnackbar } from "notistack";
 
 import {
-  Box, Typography, Paper, Divider, Grid, Stack, TextField, Button,
-  CircularProgress, Alert, Dialog, DialogTitle, DialogContent, DialogActions,
-  IconButton, Tooltip, Tabs, Tab, Table, TableHead, TableRow, TableCell, TableBody, Chip,
-  TableContainer, useMediaQuery
+  Box,
+  Typography,
+  Paper,
+  Divider,
+  Grid,
+  Stack,
+  TextField,
+  Button,
+  CircularProgress,
+  Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Tooltip,
+  Tabs,
+  Tab,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Chip,
+  TableContainer,
+  useMediaQuery,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 
 import EditIcon from "@mui/icons-material/Edit";
 
 function statusColor(status) {
-  const s = String(status || "").toUpperCase();
-  if (s === "ACTIVE") return "success";
-  if (s === "SUSPENDED") return "warning";
-  if (s === "CLOSED") return "default";
+  const normalizedStatus = String(status || "").toUpperCase();
+  if (normalizedStatus === "ACTIVE") return "success";
+  if (normalizedStatus === "SUSPENDED") return "warning";
+  if (normalizedStatus === "CLOSED") return "default";
   return "default";
 }
 
-function fmtMoney(x) {
-  if (x === null || x === undefined || x === "") return "-";
-  const n = Number(x);
-  if (Number.isNaN(n)) return String(x);
-  return n.toLocaleString();
+function fmtMoney(value) {
+  if (value === null || value === undefined || value === "") return "-";
+  const parsedNumber = Number(value);
+  if (Number.isNaN(parsedNumber)) return String(value);
+  return parsedNumber.toLocaleString();
 }
 
 export default function ClientDetails() {
@@ -42,7 +64,6 @@ export default function ClientDetails() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // profile edit dialog
   const [editOpen, setEditOpen] = useState(false);
   const [profile, setProfile] = useState({ full_name: "", phone: "" });
   const [savingProfile, setSavingProfile] = useState(false);
@@ -72,7 +93,6 @@ export default function ClientDetails() {
       const res = await api.get(`/clients/${id}/creditlines`);
       setCreditlines(res.data || []);
     } catch {
-      // Don't kill the whole page if this request fails.
       setCreditlines([]);
     }
   }
@@ -118,34 +138,47 @@ export default function ClientDetails() {
         sx={{ mb: 2 }}
       >
         <Box>
-          <Typography variant="h5">
-            Client: {data.account} — {data.full_name}{" "}
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>
+            Client: {data.account} - {data.full_name}{" "}
             <Chip size="small" label={data.status || "ACTIVE"} color={statusColor(data.status)} sx={{ ml: 1 }} />
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Phone: {data.phone || "-"}
           </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            View profile details and every imported creditline in a cleaner mobile-friendly layout.
+          </Typography>
         </Box>
 
-        <Tooltip title="Edit profile">
-          <IconButton onClick={() => setEditOpen(true)} sx={{ alignSelf: { xs: "flex-end", sm: "auto" } }}>
-            <EditIcon />
-          </IconButton>
-        </Tooltip>
+        {isMobile ? (
+          <Button
+            variant="outlined"
+            startIcon={<EditIcon />}
+            onClick={() => setEditOpen(true)}
+            sx={{ width: "100%" }}
+          >
+            Edit profile
+          </Button>
+        ) : (
+          <Tooltip title="Edit profile">
+            <IconButton onClick={() => setEditOpen(true)} sx={{ alignSelf: { xs: "flex-end", sm: "auto" } }}>
+              <EditIcon />
+            </IconButton>
+          </Tooltip>
+        )}
       </Stack>
 
       <Paper sx={{ mb: 2 }}>
-        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="fullWidth">
+        <Tabs value={tab} onChange={(_, nextTab) => setTab(nextTab)} variant={isMobile ? "scrollable" : "fullWidth"} allowScrollButtonsMobile>
           <Tab label="Profile" />
           <Tab label="Creditlines" />
         </Tabs>
       </Paper>
 
-      {/* PROFILE */}
       {tab === 0 && (
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6">Profile</Typography>
-          <Divider sx={{ my: 1 }} />
+        <Paper sx={{ p: { xs: 1.5, sm: 2.5 }, borderRadius: 3 }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>Profile</Typography>
+          <Divider sx={{ my: 1.25 }} />
           <Grid container spacing={2}>
             <Grid item xs={12} md={4}><Typography><b>Account:</b> {data.account}</Typography></Grid>
             <Grid item xs={12} md={4}><Typography><b>Name:</b> {data.full_name}</Typography></Grid>
@@ -154,17 +187,16 @@ export default function ClientDetails() {
         </Paper>
       )}
 
-      {/* CREDITLINES (raw rows from Excel) */}
       {tab === 1 && (
-        <Paper sx={{ p: { xs: 1.5, sm: 2 }, width: "100%", overflow: "hidden" }}>
+        <Paper sx={{ p: { xs: 1.5, sm: 2 }, width: "100%", overflow: "hidden", borderRadius: 3 }}>
           <Stack
             direction={{ xs: "column", sm: "row" }}
             justifyContent="space-between"
             alignItems={{ xs: "stretch", sm: "center" }}
             spacing={1.5}
           >
-            <Typography variant="h6">Creditlines</Typography>
-            <Button variant="outlined" onClick={loadCreditlines} sx={{ alignSelf: { xs: "flex-start", sm: "auto" } }}>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>Creditlines</Typography>
+            <Button variant="outlined" onClick={loadCreditlines} sx={{ alignSelf: { xs: "stretch", sm: "auto" } }}>
               Refresh
             </Button>
           </Stack>
@@ -174,30 +206,30 @@ export default function ClientDetails() {
             <Alert severity="info">No creditlines found for this client.</Alert>
           ) : isMobile ? (
             <Stack spacing={1.5}>
-              {creditlines.map((cl) => (
+              {creditlines.map((creditline) => (
                 <Paper
-                  key={cl.id || `${cl.creditline}-${cl.start_date}`}
+                  key={creditline.id || `${creditline.creditline}-${creditline.start_date}`}
                   variant="outlined"
-                  sx={{ p: 1.5, borderRadius: 2 }}
+                  sx={{ p: 1.5, borderRadius: 2.5 }}
                 >
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    {cl.creditline || "-"}
+                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+                    {creditline.creditline || "-"}
                   </Typography>
                   <Grid container spacing={1.5}>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Account</Typography><Typography>{data.account || "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Outstanding</Typography><Typography>{fmtMoney(cl.outstanding)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Principal Arrears</Typography><Typography>{fmtMoney(cl.principal_arrears)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Interest Arrears</Typography><Typography>{fmtMoney(cl.interest_arrears)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Payment Plan</Typography><Typography>{fmtMoney(cl.payment_plan)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Days in Arrears</Typography><Typography>{cl.days_in_arrears ?? "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Start Date</Typography><Typography>{cl.start_date || "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Duration</Typography><Typography>{cl.duration ?? "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Remaining Period</Typography><Typography>{cl.remaining_period ?? "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Periodicity</Typography><Typography>{cl.periodicity ?? "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Class</Typography><Typography>{cl.class_value ?? "-"}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Compulsory Saving</Typography><Typography>{fmtMoney(cl.compulsory_saving)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Voluntary Saving</Typography><Typography>{fmtMoney(cl.voluntary_saving)}</Typography></Grid>
-                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Salary</Typography><Typography>{fmtMoney(cl.salary)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Outstanding</Typography><Typography>{fmtMoney(creditline.outstanding)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Principal Arrears</Typography><Typography>{fmtMoney(creditline.principal_arrears)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Interest Arrears</Typography><Typography>{fmtMoney(creditline.interest_arrears)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Payment Plan</Typography><Typography>{fmtMoney(creditline.payment_plan)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Days in Arrears</Typography><Typography>{creditline.days_in_arrears ?? "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Start Date</Typography><Typography>{creditline.start_date || "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Duration</Typography><Typography>{creditline.duration ?? "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Remaining Period</Typography><Typography>{creditline.remaining_period ?? "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Periodicity</Typography><Typography>{creditline.periodicity ?? "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Class</Typography><Typography>{creditline.class_value ?? "-"}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Compulsory Saving</Typography><Typography>{fmtMoney(creditline.compulsory_saving)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Voluntary Saving</Typography><Typography>{fmtMoney(creditline.voluntary_saving)}</Typography></Grid>
+                    <Grid item xs={6}><Typography variant="caption" color="text.secondary">Salary</Typography><Typography>{fmtMoney(creditline.salary)}</Typography></Grid>
                   </Grid>
                 </Paper>
               ))}
@@ -212,9 +244,9 @@ export default function ClientDetails() {
                     <TableCell align="right">Outstanding</TableCell>
                     <TableCell align="right">Principal Arrears</TableCell>
                     <TableCell align="right">Interest Arrears</TableCell>
-                    <TableCell align="right">Payment plan</TableCell>
-                    <TableCell align="right">Days in arrears</TableCell>
-                    <TableCell>Start date</TableCell>
+                    <TableCell align="right">Payment Plan</TableCell>
+                    <TableCell align="right">Days in Arrears</TableCell>
+                    <TableCell>Start Date</TableCell>
                     <TableCell align="right">Duration</TableCell>
                     <TableCell align="right">Remaining Period</TableCell>
                     <TableCell align="right">Periodicity</TableCell>
@@ -225,23 +257,23 @@ export default function ClientDetails() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {creditlines.map((cl) => (
-                    <TableRow key={cl.id || `${cl.creditline}-${cl.start_date}`}>
+                  {creditlines.map((creditline) => (
+                    <TableRow key={creditline.id || `${creditline.creditline}-${creditline.start_date}`}>
                       <TableCell>{data.account || "-"}</TableCell>
-                      <TableCell>{cl.creditline || "-"}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.outstanding)}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.principal_arrears)}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.interest_arrears)}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.payment_plan)}</TableCell>
-                      <TableCell align="right">{cl.days_in_arrears ?? "-"}</TableCell>
-                      <TableCell>{cl.start_date || "-"}</TableCell>
-                      <TableCell align="right">{cl.duration ?? "-"}</TableCell>
-                      <TableCell align="right">{cl.remaining_period ?? "-"}</TableCell>
-                      <TableCell align="right">{cl.periodicity ?? "-"}</TableCell>
-                      <TableCell align="right">{cl.class_value ?? "-"}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.compulsory_saving)}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.voluntary_saving)}</TableCell>
-                      <TableCell align="right">{fmtMoney(cl.salary)}</TableCell>
+                      <TableCell>{creditline.creditline || "-"}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.outstanding)}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.principal_arrears)}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.interest_arrears)}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.payment_plan)}</TableCell>
+                      <TableCell align="right">{creditline.days_in_arrears ?? "-"}</TableCell>
+                      <TableCell>{creditline.start_date || "-"}</TableCell>
+                      <TableCell align="right">{creditline.duration ?? "-"}</TableCell>
+                      <TableCell align="right">{creditline.remaining_period ?? "-"}</TableCell>
+                      <TableCell align="right">{creditline.periodicity ?? "-"}</TableCell>
+                      <TableCell align="right">{creditline.class_value ?? "-"}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.compulsory_saving)}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.voluntary_saving)}</TableCell>
+                      <TableCell align="right">{fmtMoney(creditline.salary)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -251,20 +283,19 @@ export default function ClientDetails() {
         </Paper>
       )}
 
-      {/* Edit Profile Dialog */}
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Edit Client Profile</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               label="Full name"
               value={profile.full_name}
-              onChange={(e) => setProfile((p) => ({ ...p, full_name: e.target.value }))}
+              onChange={(e) => setProfile((currentProfile) => ({ ...currentProfile, full_name: e.target.value }))}
             />
             <TextField
               label="Phone"
               value={profile.phone}
-              onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))}
+              onChange={(e) => setProfile((currentProfile) => ({ ...currentProfile, phone: e.target.value }))}
             />
           </Stack>
         </DialogContent>

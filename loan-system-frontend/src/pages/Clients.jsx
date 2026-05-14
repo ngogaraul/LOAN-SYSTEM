@@ -24,8 +24,11 @@ import {
   DialogActions,
   Chip,
   Menu,
-  MenuItem
+  MenuItem,
+  TableContainer,
+  useMediaQuery
 } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 
 import DeleteIcon from "@mui/icons-material/Delete";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
@@ -41,6 +44,8 @@ function statusColor(status) {
 export default function Clients() {
   const navigate = useNavigate();
   const { enqueueSnackbar } = useSnackbar();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const role = (getAuth()?.role || "ANALYST").toUpperCase();
 
@@ -136,9 +141,23 @@ export default function Clients() {
 
   return (
     <Box>
-      <Typography variant="h5" sx={{ mb: 2 }}>Clients</Typography>
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", md: "center" }}
+        spacing={1.5}
+        sx={{ mb: 2 }}
+      >
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>Clients</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Search borrower profiles, manage access to their records, and review account status.
+          </Typography>
+        </Box>
+        <Chip label={`${total} total`} color="primary" variant="outlined" />
+      </Stack>
 
-      <Paper sx={{ p: 2, mb: 2 }}>
+      <Paper sx={{ p: { xs: 1.5, sm: 2 }, mb: 2, borderRadius: 3 }}>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
           <TextField
             label="Search"
@@ -157,78 +176,151 @@ export default function Clients() {
         </Stack>
       </Paper>
 
-      <Paper>
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableCell>ID</TableCell>
-              <TableCell>Account</TableCell>
-              <TableCell>Full name</TableCell>
-              <TableCell>Phone</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell align="right">Actions</TableCell>
-            </TableRow>
-          </TableHead>
+      <Paper sx={{ borderRadius: 3, overflow: "hidden" }}>
+        {isMobile ? (
+          items.length === 0 ? (
+            <Box sx={{ p: 3 }}>
+              <Typography color="text.secondary">No clients found.</Typography>
+            </Box>
+          ) : (
+            <Stack spacing={1.5} sx={{ p: 1.5 }}>
+              {items.map((c) => (
+                <Paper
+                  key={c.id}
+                  variant="outlined"
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 3,
+                    cursor: "pointer",
+                    transition: "transform 120ms ease, box-shadow 120ms ease",
+                    "&:hover": {
+                      transform: "translateY(-1px)",
+                      boxShadow: 3,
+                    },
+                  }}
+                  onClick={() => navigate(`/clients/${c.id}`)}
+                >
+                  <Stack spacing={1.2}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                          {c.account}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {c.full_name}
+                        </Typography>
+                      </Box>
+                      <Chip size="small" label={c.status || "ACTIVE"} color={statusColor(c.status)} />
+                    </Stack>
 
-          <TableBody>
-            {items.map((c) => (
-              <TableRow
-                key={c.id}
-                hover
-                sx={{ cursor: "pointer" }}
-                onClick={() => navigate(`/clients/${c.id}`)}
-              >
-                <TableCell>{c.id}</TableCell>
-                <TableCell>{c.account}</TableCell>
-                <TableCell>{c.full_name}</TableCell>
-                <TableCell>{c.phone}</TableCell>
-                <TableCell>
-                  <Chip size="small" label={c.status || "ACTIVE"} color={statusColor(c.status)} />
-                </TableCell>
+                    <Typography variant="body2">{c.phone || "-"}</Typography>
 
-                <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                  <Tooltip title={role === "ADMIN" ? "Change status" : "Admin only"}>
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={role !== "ADMIN"}
-                        onClick={(e) => openStatusMenu(e, c)}
-                      >
-                        <MoreVertIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
+                    <Stack direction="row" justifyContent="flex-end" spacing={0.5} onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title={role === "ADMIN" ? "Change status" : "Admin only"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={role !== "ADMIN"}
+                            onClick={(e) => openStatusMenu(e, c)}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
 
-                  <Tooltip title={role === "ADMIN" ? "Delete client" : "Admin only"}>
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="error"
-                        disabled={role !== "ADMIN"}
-                        onClick={() => openDelete(c)}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </TableCell>
-              </TableRow>
-            ))}
+                      <Tooltip title={role === "ADMIN" ? "Delete client" : "Admin only"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={role !== "ADMIN"}
+                            onClick={() => openDelete(c)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          )
+        ) : (
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>ID</TableCell>
+                  <TableCell>Account</TableCell>
+                  <TableCell>Full name</TableCell>
+                  <TableCell>Phone</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
 
-            {items.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6}>
-                  <Typography color="text.secondary" sx={{ p: 2 }}>
-                    No clients found.
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+              <TableBody>
+                {items.map((c) => (
+                  <TableRow
+                    key={c.id}
+                    hover
+                    sx={{ cursor: "pointer" }}
+                    onClick={() => navigate(`/clients/${c.id}`)}
+                  >
+                    <TableCell>{c.id}</TableCell>
+                    <TableCell>{c.account}</TableCell>
+                    <TableCell>{c.full_name}</TableCell>
+                    <TableCell>{c.phone}</TableCell>
+                    <TableCell>
+                      <Chip size="small" label={c.status || "ACTIVE"} color={statusColor(c.status)} />
+                    </TableCell>
+
+                    <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      <Tooltip title={role === "ADMIN" ? "Change status" : "Admin only"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={role !== "ADMIN"}
+                            onClick={(e) => openStatusMenu(e, c)}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+
+                      <Tooltip title={role === "ADMIN" ? "Delete client" : "Admin only"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={role !== "ADMIN"}
+                            onClick={() => openDelete(c)}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+
+                {items.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6}>
+                      <Typography color="text.secondary" sx={{ p: 2 }}>
+                        No clients found.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
       </Paper>
 
-      <Stack direction="row" spacing={2} sx={{ mt: 2 }} alignItems="center">
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ mt: 2 }} alignItems={{ xs: "stretch", sm: "center" }}>
         <Button
           variant="outlined"
           disabled={page <= 1}
@@ -260,7 +352,7 @@ export default function Clients() {
         <MenuItem onClick={() => setStatus("CLOSED")}>Set CLOSED</MenuItem>
       </Menu>
 
-      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={delOpen} onClose={() => setDelOpen(false)} maxWidth="sm" fullWidth fullScreen={isMobile}>
         <DialogTitle>Delete client?</DialogTitle>
         <DialogContent>
           <Typography>

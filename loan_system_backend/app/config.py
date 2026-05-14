@@ -60,6 +60,10 @@ RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", SMTP_FROM_EMAIL).strip()
 RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", SMTP_FROM_NAME).strip()
 AUTH_SESSION_COOKIE_NAME = os.getenv("AUTH_SESSION_COOKIE_NAME", "rca_session").strip()
 AUTH_SESSION_COOKIE_SECURE = os.getenv("AUTH_SESSION_COOKIE_SECURE", "false").strip().lower() == "true"
+AUTH_SESSION_COOKIE_SAMESITE = os.getenv(
+    "AUTH_SESSION_COOKIE_SAMESITE",
+    "None" if AUTH_SESSION_COOKIE_SECURE else "Lax",
+).strip().capitalize()
 AUTH_SESSION_HOURS = int(os.getenv("AUTH_SESSION_HOURS", "12"))
 ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
@@ -129,6 +133,8 @@ def validate_runtime_config() -> None:
                 missing.append("RESEND_API_KEY")
             if not RESEND_FROM_EMAIL:
                 missing.append("RESEND_FROM_EMAIL")
+        if AUTH_SESSION_COOKIE_SAMESITE not in {"Lax", "Strict", "None"}:
+            missing.append("AUTH_SESSION_COOKIE_SAMESITE")
 
     if missing:
         raise RuntimeError(

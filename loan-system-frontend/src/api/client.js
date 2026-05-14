@@ -12,7 +12,7 @@ api.interceptors.response.use(
     if (error?.response?.status === 401) {
       clearAuth();
       if (window.location.pathname !== "/login") {
-        window.location.replace("/login");
+        window.location.replace("/");
       }
     }
     return Promise.reject(error);

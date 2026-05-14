@@ -17,6 +17,7 @@ from app.auth_service import (
 from app.config import (
     AUTH_MODE,
     AUTH_SESSION_COOKIE_NAME,
+    AUTH_SESSION_COOKIE_SAMESITE,
     AUTH_SESSION_COOKIE_SECURE,
     AUTH_SESSION_HOURS,
     EMAIL_CODE_LENGTH,
@@ -65,7 +66,7 @@ def _set_session_cookie(response, session_token: str) -> None:
         session_token,
         httponly=True,
         secure=AUTH_SESSION_COOKIE_SECURE,
-        samesite="Lax",
+        samesite=AUTH_SESSION_COOKIE_SAMESITE,
         path="/",
         max_age=AUTH_SESSION_HOURS * 3600,
     )
@@ -77,7 +78,7 @@ def _clear_session_cookie(response) -> None:
         path="/",
         httponly=True,
         secure=AUTH_SESSION_COOKIE_SECURE,
-        samesite="Lax",
+        samesite=AUTH_SESSION_COOKIE_SAMESITE,
     )
 
 

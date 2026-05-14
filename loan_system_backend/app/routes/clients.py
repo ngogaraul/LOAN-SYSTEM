@@ -32,8 +32,12 @@ def _status_upper(v: str) -> str:
     return str(v or "").strip().upper()
 
 
+def _creditline_value(v: str) -> str:
+    return str(v or "").strip()
+
+
 def _is_orphan_shell_creditline(row, linked_creditline_values: set[str]) -> bool:
-    creditline_value = str(getattr(row, "creditline", "") or "").strip()
+    creditline_value = _creditline_value(getattr(row, "creditline", ""))
     if not creditline_value or creditline_value in linked_creditline_values:
         return False
 
@@ -57,6 +61,80 @@ def _is_orphan_shell_creditline(row, linked_creditline_values: set[str]) -> bool
         return False
 
     return not str(getattr(row, "start_date", "") or "").strip()
+
+
+def _build_linked_application_payload(app_):
+    if not app_:
+        return None
+
+    return {
+        "id": app_.id,
+        "creditline": _creditline_value(getattr(app_, "creditline", "")),
+        "status": getattr(app_, "status", "SUBMITTED"),
+        "amount_requested": _to_float(getattr(app_, "amount_requested", 0), 0) or 0,
+        "payment_plan": _to_float(getattr(app_, "payment_plan", 0), 0) or 0,
+        "purpose": getattr(app_, "purpose", "") or "",
+        "term_requested": getattr(app_, "term_requested", 0) or 0,
+        "submitted_at": str(getattr(app_, "submitted_at", "") or ""),
+    }
+
+
+def _build_creditline_payload(row, linked_application=None):
+    application_payload = _build_linked_application_payload(linked_application)
+    creditline_value = _creditline_value(
+        (getattr(row, "creditline", None) if row else None)
+        or (getattr(linked_application, "creditline", None) if linked_application else "")
+        or ""
+    )
+
+    return {
+        "id": getattr(row, "id", None),
+        "creditline": creditline_value,
+        "application_id": application_payload["id"] if application_payload else None,
+        "application": application_payload,
+        "has_linked_application": application_payload is not None,
+        "is_available": application_payload is None,
+        "outstanding": _to_float(getattr(row, "outstanding", 0), 0) or 0,
+        "payment_plan": _to_float(getattr(row, "payment_plan", 0), 0) or 0,
+        "interest_rate": _to_float(getattr(row, "interest_rate", 0), 0) or 0,
+        "remaining_period": _to_float(getattr(row, "remaining_period", 0), 0) or 0,
+        "periodicity": _to_float(getattr(row, "periodicity", 0), 0) or 0,
+        "class_value": _to_float(getattr(row, "class_value", 0), 0) or 0,
+        "compulsory_saving": _to_float(getattr(row, "compulsory_saving", 0), 0) or 0,
+        "voluntary_saving": _to_float(getattr(row, "voluntary_saving", 0), 0) or 0,
+        "salary": _to_float(getattr(row, "salary", 0), 0) or 0,
+        "duration": _to_float(getattr(row, "duration", 0), 0) or 0,
+        "start_date": str(getattr(row, "start_date", "") or ""),
+        "days_in_arrears": _to_float(getattr(row, "days_in_arrears", 0), 0) or 0,
+        "principal_arrears": _to_float(getattr(row, "principal_arrears", 0), 0) or 0,
+        "interest_arrears": _to_float(getattr(row, "interest_arrears", 0), 0) or 0,
+        "source": "financial" if row is not None else "application_only",
+    }
+
+
+def _apply_creditline_updates(row, data):
+    numeric_fields = (
+        "outstanding",
+        "principal_arrears",
+        "interest_arrears",
+        "payment_plan",
+        "interest_rate",
+        "days_in_arrears",
+        "duration",
+        "remaining_period",
+        "periodicity",
+        "class_value",
+        "compulsory_saving",
+        "voluntary_saving",
+        "salary",
+    )
+
+    for field in numeric_fields:
+        if field in data:
+            setattr(row, field, _to_float(data.get(field), getattr(row, field, 0)) or 0)
+
+    if "start_date" in data:
+        row.start_date = str(data.get("start_date") or "").strip()
 
 
 @bp.post("/")
@@ -385,6 +463,126 @@ async def delete_client(request, client_id: int):
         return json({"message": "client deleted", "client_id": client_id})
 
 
+@bp.put("/<client_id:int>/creditlines/<creditline_id:int>")
+@require_auth(roles=["ADMIN"])
+async def update_creditline(request, client_id: int, creditline_id: int):
+    data = request.json or {}
+
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        row = await session.scalar(
+            select(CreditlineFinancial).where(
+                CreditlineFinancial.id == creditline_id,
+                CreditlineFinancial.client_id == client_id,
+            )
+        )
+        if not row:
+            return json({"error": "creditline not found"}, status=404)
+
+        original_creditline = _creditline_value(row.creditline)
+        updated_creditline = original_creditline
+
+        if "creditline" in data:
+            updated_creditline = _creditline_value(data.get("creditline"))
+            if not updated_creditline:
+                return json({"error": "creditline is required"}, status=400)
+
+            if updated_creditline != original_creditline:
+                duplicate_row = await session.scalar(
+                    select(CreditlineFinancial.id).where(
+                        CreditlineFinancial.client_id == client_id,
+                        CreditlineFinancial.creditline == updated_creditline,
+                        CreditlineFinancial.id != creditline_id,
+                    )
+                )
+                if duplicate_row:
+                    return json({
+                        "error": "creditline_exists",
+                        "message": "A creditline with that value already exists for this client.",
+                    }, status=409)
+
+                conflicting_application = await session.scalar(
+                    select(LoanApplication.id).where(
+                        LoanApplication.creditline == updated_creditline
+                    )
+                )
+                if conflicting_application:
+                    return json({
+                        "error": "creditline_in_use",
+                        "message": "That creditline is already linked to another loan application.",
+                    }, status=409)
+
+        linked_application = await session.scalar(
+            select(LoanApplication).where(
+                LoanApplication.client_id == client_id,
+                LoanApplication.creditline == original_creditline,
+            )
+        )
+
+        row.creditline = updated_creditline
+        _apply_creditline_updates(row, data)
+
+        if linked_application and updated_creditline != original_creditline:
+            linked_application.creditline = updated_creditline
+
+        await mark_client_applications_stale(session, client_id)
+        await session.commit()
+        await invalidate_all_api_cache()
+
+        if linked_application and updated_creditline != original_creditline:
+            await session.refresh(linked_application)
+
+        return json({
+            "message": "creditline updated",
+            "creditline": _build_creditline_payload(row, linked_application),
+        })
+
+
+@bp.delete("/<client_id:int>/creditlines/<creditline_id:int>")
+@require_auth(roles=["ADMIN"])
+async def delete_creditline(request, client_id: int, creditline_id: int):
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        row = await session.scalar(
+            select(CreditlineFinancial).where(
+                CreditlineFinancial.id == creditline_id,
+                CreditlineFinancial.client_id == client_id,
+            )
+        )
+        if not row:
+            return json({"error": "creditline not found"}, status=404)
+
+        linked_application_id = await session.scalar(
+            select(LoanApplication.id).where(
+                LoanApplication.client_id == client_id,
+                LoanApplication.creditline == _creditline_value(row.creditline),
+            )
+        )
+        if linked_application_id:
+            return json({
+                "error": "creditline_linked",
+                "message": "This creditline is linked to a loan application and cannot be deleted.",
+            }, status=409)
+
+        deleted_creditline = _creditline_value(row.creditline)
+        await session.delete(row)
+        await session.commit()
+        await invalidate_all_api_cache()
+
+        return json({
+            "message": "creditline deleted",
+            "client_id": client_id,
+            "creditline_id": creditline_id,
+            "creditline": deleted_creditline,
+        })
+
+
 @bp.get("/<client_id:int>/creditlines")
 @require_auth(roles=["ADMIN", "ANALYST"])
 async def list_client_creditlines(request, client_id: int):
@@ -394,6 +592,10 @@ async def list_client_creditlines(request, client_id: int):
         return json(cached)
 
     async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
         rows = (await session.execute(
             select(CreditlineFinancial)
             .where(CreditlineFinancial.client_id == client_id)
@@ -401,13 +603,14 @@ async def list_client_creditlines(request, client_id: int):
         )).scalars().all()
 
         linked_apps = (await session.execute(
-            select(LoanApplication.id, LoanApplication.creditline)
+            select(LoanApplication)
             .where(LoanApplication.client_id == client_id)
-        )).all()
+            .order_by(desc(LoanApplication.id))
+        )).scalars().all()
         linked_by_creditline = {
-            str(creditline or "").strip(): app_id
-            for app_id, creditline in linked_apps
-            if str(creditline or "").strip()
+            _creditline_value(app.creditline): app
+            for app in linked_apps
+            if _creditline_value(app.creditline)
         }
         linked_creditline_values = set(linked_by_creditline.keys())
 
@@ -416,25 +619,18 @@ async def list_client_creditlines(request, client_id: int):
             if not _is_orphan_shell_creditline(r, linked_creditline_values)
         ]
 
-        payload = [{
-            "id": r.id,
-            "creditline": r.creditline,
-            "application_id": linked_by_creditline.get(str(r.creditline or "").strip()),
-            "is_available": str(r.creditline or "").strip() not in linked_by_creditline,
-            "outstanding": r.outstanding,
-            "payment_plan": r.payment_plan,
-            "interest_rate": r.interest_rate,
-            "remaining_period": r.remaining_period,
-            "periodicity": r.periodicity,
-            "class_value": r.class_value,
-            "compulsory_saving": r.compulsory_saving,
-            "voluntary_saving": r.voluntary_saving,
-            "salary": r.salary,
-            "duration": r.duration,
-            "start_date": r.start_date,
-            "days_in_arrears": r.days_in_arrears,
-            "principal_arrears": r.principal_arrears,
-            "interest_arrears": r.interest_arrears,
-        } for r in visible_rows]
+        payload = []
+        seen_creditlines = set()
+
+        for row in visible_rows:
+            creditline_key = _creditline_value(row.creditline)
+            payload.append(_build_creditline_payload(row, linked_by_creditline.get(creditline_key)))
+            if creditline_key:
+                seen_creditlines.add(creditline_key)
+
+        for creditline_key, linked_application in linked_by_creditline.items():
+            if creditline_key and creditline_key not in seen_creditlines:
+                payload.append(_build_creditline_payload(None, linked_application))
+
         await api_cache.set(cache_key, payload, ttl_seconds=API_CACHE_TTL_SEC)
         return json(payload)

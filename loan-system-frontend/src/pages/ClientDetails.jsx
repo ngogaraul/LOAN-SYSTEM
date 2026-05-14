@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../api/client";
+import { getAuth } from "../auth/auth";
 import { useSnackbar } from "notistack";
 
 import {
@@ -34,6 +35,7 @@ import {
 import { useTheme } from "@mui/material/styles";
 
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 
 function statusColor(status) {
   const normalizedStatus = String(status || "").toUpperCase();
@@ -50,11 +52,50 @@ function fmtMoney(value) {
   return parsedNumber.toLocaleString();
 }
 
+function fmtDateTime(value) {
+  if (!value) return "-";
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return String(value);
+  return parsedDate.toLocaleString();
+}
+
+function applicationStatusColor(status) {
+  const normalizedStatus = String(status || "").toUpperCase();
+  if (normalizedStatus === "APPROVED") return "success";
+  if (normalizedStatus === "REJECTED") return "error";
+  if (normalizedStatus === "REVIEW") return "warning";
+  if (normalizedStatus === "SCORED") return "info";
+  return "default";
+}
+
+function buildCreditlineDraft(creditline) {
+  return {
+    id: creditline?.id ?? null,
+    creditline: creditline?.creditline || "",
+    outstanding: String(creditline?.outstanding ?? 0),
+    principal_arrears: String(creditline?.principal_arrears ?? 0),
+    interest_arrears: String(creditline?.interest_arrears ?? 0),
+    payment_plan: String(creditline?.payment_plan ?? 0),
+    interest_rate: String(creditline?.interest_rate ?? 0),
+    days_in_arrears: String(creditline?.days_in_arrears ?? 0),
+    start_date: creditline?.start_date || "",
+    duration: String(creditline?.duration ?? 0),
+    remaining_period: String(creditline?.remaining_period ?? 0),
+    periodicity: String(creditline?.periodicity ?? 0),
+    class_value: String(creditline?.class_value ?? 0),
+    compulsory_saving: String(creditline?.compulsory_saving ?? 0),
+    voluntary_saving: String(creditline?.voluntary_saving ?? 0),
+    salary: String(creditline?.salary ?? 0),
+  };
+}
+
 export default function ClientDetails() {
   const { id } = useParams();
   const { enqueueSnackbar } = useSnackbar();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const role = (getAuth()?.role || "ANALYST").toUpperCase();
+  const isAdmin = role === "ADMIN";
 
   const [tab, setTab] = useState(0);
 
@@ -67,6 +108,11 @@ export default function ClientDetails() {
   const [editOpen, setEditOpen] = useState(false);
   const [profile, setProfile] = useState({ full_name: "", phone: "" });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [creditlineEditOpen, setCreditlineEditOpen] = useState(false);
+  const [creditlineDraft, setCreditlineDraft] = useState(null);
+  const [savingCreditline, setSavingCreditline] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deletingCreditline, setDeletingCreditline] = useState(false);
 
   async function loadClient() {
     setErr("");
@@ -115,6 +161,73 @@ export default function ClientDetails() {
       enqueueSnackbar(msg, { variant: "error" });
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  function openCreditlineEditor(creditline) {
+    if (!creditline?.id) {
+      enqueueSnackbar("This creditline cannot be edited from here.", { variant: "warning" });
+      return;
+    }
+    setCreditlineDraft(buildCreditlineDraft(creditline));
+    setCreditlineEditOpen(true);
+  }
+
+  function updateCreditlineField(field, value) {
+    setCreditlineDraft((currentCreditlineDraft) => ({
+      ...currentCreditlineDraft,
+      [field]: value,
+    }));
+  }
+
+  async function saveCreditline() {
+    if (!creditlineDraft?.id) return;
+
+    setSavingCreditline(true);
+    try {
+      await api.put(`/clients/${id}/creditlines/${creditlineDraft.id}`, {
+        creditline: creditlineDraft.creditline,
+        outstanding: creditlineDraft.outstanding,
+        principal_arrears: creditlineDraft.principal_arrears,
+        interest_arrears: creditlineDraft.interest_arrears,
+        payment_plan: creditlineDraft.payment_plan,
+        interest_rate: creditlineDraft.interest_rate,
+        days_in_arrears: creditlineDraft.days_in_arrears,
+        start_date: creditlineDraft.start_date,
+        duration: creditlineDraft.duration,
+        remaining_period: creditlineDraft.remaining_period,
+        periodicity: creditlineDraft.periodicity,
+        class_value: creditlineDraft.class_value,
+        compulsory_saving: creditlineDraft.compulsory_saving,
+        voluntary_saving: creditlineDraft.voluntary_saving,
+        salary: creditlineDraft.salary,
+      });
+      enqueueSnackbar("Creditline updated.", { variant: "success" });
+      setCreditlineEditOpen(false);
+      setCreditlineDraft(null);
+      await loadCreditlines();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to update creditline";
+      enqueueSnackbar(msg, { variant: "error" });
+    } finally {
+      setSavingCreditline(false);
+    }
+  }
+
+  async function deleteCreditline() {
+    if (!deleteTarget?.id) return;
+
+    setDeletingCreditline(true);
+    try {
+      await api.delete(`/clients/${id}/creditlines/${deleteTarget.id}`);
+      enqueueSnackbar("Creditline deleted.", { variant: "success" });
+      setDeleteTarget(null);
+      await loadCreditlines();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to delete creditline";
+      enqueueSnackbar(msg, { variant: "error" });
+    } finally {
+      setDeletingCreditline(false);
     }
   }
 
@@ -209,9 +322,50 @@ export default function ClientDetails() {
                   variant="outlined"
                   sx={{ p: 1.5, borderRadius: 2.5 }}
                 >
-                  <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
-                    {creditline.creditline || "-"}
-                  </Typography>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+                        {creditline.creditline || "-"}
+                      </Typography>
+                      {creditline.application && (
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                          <Chip
+                            size="small"
+                            label={creditline.application.status || "SUBMITTED"}
+                            color={applicationStatusColor(creditline.application.status)}
+                          />
+                          <Typography variant="caption" color="text.secondary">
+                            Loan #{creditline.application.id}
+                          </Typography>
+                        </Stack>
+                      )}
+                    </Box>
+
+                    {isAdmin && (
+                      <Stack direction="row" spacing={0.5}>
+                        <Tooltip title={creditline.id ? "Edit creditline" : "View-only creditline"}>
+                          <span>
+                            <IconButton size="small" onClick={() => openCreditlineEditor(creditline)} disabled={!creditline.id}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteTarget(creditline)}
+                              disabled={!creditline.id || creditline.has_linked_application}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                    )}
+                  </Stack>
+
                   <Grid container spacing={1.5}>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Account</Typography><Typography>{data.account || "-"}</Typography></Grid>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Outstanding</Typography><Typography>{fmtMoney(creditline.outstanding)}</Typography></Grid>
@@ -228,16 +382,47 @@ export default function ClientDetails() {
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Voluntary Saving</Typography><Typography>{fmtMoney(creditline.voluntary_saving)}</Typography></Grid>
                     <Grid item xs={6}><Typography variant="caption" color="text.secondary">Salary</Typography><Typography>{fmtMoney(creditline.salary)}</Typography></Grid>
                   </Grid>
+
+                  {creditline.application && (
+                    <Box sx={{ mt: 1.5, p: 1.25, borderRadius: 2, bgcolor: "action.hover" }}>
+                      <Typography variant="caption" color="text.secondary">Linked loan information</Typography>
+                      <Grid container spacing={1.25} sx={{ mt: 0.25 }}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">Requested Amount</Typography>
+                          <Typography>{fmtMoney(creditline.application.amount_requested)}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">Payment Plan</Typography>
+                          <Typography>{fmtMoney(creditline.application.payment_plan)}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">Term</Typography>
+                          <Typography>{creditline.application.term_requested ?? "-"}</Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">Submitted</Typography>
+                          <Typography>{fmtDateTime(creditline.application.submitted_at)}</Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="caption" color="text.secondary">Purpose</Typography>
+                          <Typography>{creditline.application.purpose || "-"}</Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  )}
                 </Paper>
               ))}
             </Stack>
           ) : (
             <TableContainer sx={{ width: "100%", overflowX: "auto" }}>
-              <Table size="small" sx={{ minWidth: 1500 }}>
+              <Table size="small" sx={{ minWidth: 1780 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Account</TableCell>
                     <TableCell>Creditline</TableCell>
+                    <TableCell>Loan Status</TableCell>
+                    <TableCell>Requested Amount</TableCell>
+                    <TableCell>Purpose</TableCell>
                     <TableCell align="right">Outstanding</TableCell>
                     <TableCell align="right">Principal Arrears</TableCell>
                     <TableCell align="right">Interest Arrears</TableCell>
@@ -251,6 +436,7 @@ export default function ClientDetails() {
                     <TableCell align="right">Compulsory Saving</TableCell>
                     <TableCell align="right">Voluntary Saving</TableCell>
                     <TableCell align="right">Salary</TableCell>
+                    {isAdmin && <TableCell align="right">Actions</TableCell>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -258,6 +444,17 @@ export default function ClientDetails() {
                     <TableRow key={creditline.id || `${creditline.creditline}-${creditline.start_date}`}>
                       <TableCell>{data.account || "-"}</TableCell>
                       <TableCell>{creditline.creditline || "-"}</TableCell>
+                      <TableCell>
+                        {creditline.application ? (
+                          <Chip
+                            size="small"
+                            label={creditline.application.status || "SUBMITTED"}
+                            color={applicationStatusColor(creditline.application.status)}
+                          />
+                        ) : "-"}
+                      </TableCell>
+                      <TableCell>{creditline.application ? fmtMoney(creditline.application.amount_requested) : "-"}</TableCell>
+                      <TableCell>{creditline.application?.purpose || "-"}</TableCell>
                       <TableCell align="right">{fmtMoney(creditline.outstanding)}</TableCell>
                       <TableCell align="right">{fmtMoney(creditline.principal_arrears)}</TableCell>
                       <TableCell align="right">{fmtMoney(creditline.interest_arrears)}</TableCell>
@@ -271,6 +468,31 @@ export default function ClientDetails() {
                       <TableCell align="right">{fmtMoney(creditline.compulsory_saving)}</TableCell>
                       <TableCell align="right">{fmtMoney(creditline.voluntary_saving)}</TableCell>
                       <TableCell align="right">{fmtMoney(creditline.salary)}</TableCell>
+                      {isAdmin && (
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                            <Tooltip title={creditline.id ? "Edit creditline" : "View-only creditline"}>
+                              <span>
+                                <IconButton size="small" onClick={() => openCreditlineEditor(creditline)} disabled={!creditline.id}>
+                                  <EditIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="error"
+                                  onClick={() => setDeleteTarget(creditline)}
+                                  disabled={!creditline.id || creditline.has_linked_application}
+                                >
+                                  <DeleteOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Stack>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -300,6 +522,101 @@ export default function ClientDetails() {
           <Button onClick={() => setEditOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={saveProfile} disabled={savingProfile}>
             {savingProfile ? "Saving..." : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={creditlineEditOpen}
+        onClose={() => !savingCreditline && setCreditlineEditOpen(false)}
+        maxWidth="md"
+        fullWidth
+        fullScreen={isMobile}
+      >
+        <DialogTitle>Edit Creditline</DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 0.25 }}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Creditline"
+                value={creditlineDraft?.creditline || ""}
+                onChange={(e) => updateCreditlineField("creditline", e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Start Date"
+                value={creditlineDraft?.start_date || ""}
+                onChange={(e) => updateCreditlineField("start_date", e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Outstanding" value={creditlineDraft?.outstanding || ""} onChange={(e) => updateCreditlineField("outstanding", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Payment Plan" value={creditlineDraft?.payment_plan || ""} onChange={(e) => updateCreditlineField("payment_plan", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Principal Arrears" value={creditlineDraft?.principal_arrears || ""} onChange={(e) => updateCreditlineField("principal_arrears", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Interest Arrears" value={creditlineDraft?.interest_arrears || ""} onChange={(e) => updateCreditlineField("interest_arrears", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Interest Rate" value={creditlineDraft?.interest_rate || ""} onChange={(e) => updateCreditlineField("interest_rate", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Days in Arrears" value={creditlineDraft?.days_in_arrears || ""} onChange={(e) => updateCreditlineField("days_in_arrears", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Duration" value={creditlineDraft?.duration || ""} onChange={(e) => updateCreditlineField("duration", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Remaining Period" value={creditlineDraft?.remaining_period || ""} onChange={(e) => updateCreditlineField("remaining_period", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Periodicity" value={creditlineDraft?.periodicity || ""} onChange={(e) => updateCreditlineField("periodicity", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Class Value" value={creditlineDraft?.class_value || ""} onChange={(e) => updateCreditlineField("class_value", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Compulsory Saving" value={creditlineDraft?.compulsory_saving || ""} onChange={(e) => updateCreditlineField("compulsory_saving", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Voluntary Saving" value={creditlineDraft?.voluntary_saving || ""} onChange={(e) => updateCreditlineField("voluntary_saving", e.target.value)} />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField fullWidth label="Salary" value={creditlineDraft?.salary || ""} onChange={(e) => updateCreditlineField("salary", e.target.value)} />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreditlineEditOpen(false)} disabled={savingCreditline}>Cancel</Button>
+          <Button variant="contained" onClick={saveCreditline} disabled={savingCreditline}>
+            {savingCreditline ? "Saving..." : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onClose={() => !deletingCreditline && setDeleteTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Creditline</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            Delete creditline <b>{deleteTarget?.creditline || "-"}</b>? This cannot be undone.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteTarget(null)} disabled={deletingCreditline}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={deleteCreditline} disabled={deletingCreditline}>
+            {deletingCreditline ? "Deleting..." : "Delete"}
           </Button>
         </DialogActions>
       </Dialog>

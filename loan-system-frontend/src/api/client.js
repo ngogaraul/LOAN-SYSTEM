@@ -1,9 +1,18 @@
 import axios from "axios";
-import { clearAuth } from "../auth/auth";
+import { clearAuth, getAuth } from "../auth/auth";
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:9000",
   withCredentials: true,
+});
+
+api.interceptors.request.use((config) => {
+  const auth = getAuth();
+  if (auth?.token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${auth.token}`;
+  }
+  return config;
 });
 
 api.interceptors.response.use(

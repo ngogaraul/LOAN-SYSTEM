@@ -242,9 +242,6 @@ export default function NewApplication() {
         <Typography variant="h5" sx={{ fontWeight: 800 }}>
           Create New Application
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Build the application in the right order: select a borrower, choose the correct creditline, then capture the requested terms.
-        </Typography>
       </Box>
 
       <Paper sx={{ p: { xs: 1.5, sm: 2.5, md: 3 }, maxWidth: 980, borderRadius: 3 }}>
@@ -502,10 +499,7 @@ export default function NewApplication() {
                   placeholder="12"
                   fullWidth
                   error={!!fieldErrors.term}
-                  helperText={
-                    fieldErrors.term ||
-                    "Auto-calculated as Amount Requested divided by Payment Plan."
-                  }
+                  helperText={fieldErrors.term}
                 />
               </Grid>
             </Grid>

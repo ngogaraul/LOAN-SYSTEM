@@ -264,9 +264,6 @@ export default function ApplicationDetails() {
           <Typography variant="body2" color="text.secondary">
             Submitted: {fmtDate(app.submitted_at)}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Review scoring, financial context, and decision history from one place.
-          </Typography>
         </Box>
 
         <Stack

@@ -235,8 +235,10 @@ async def verify_code(request):
     except ValueError as exc:
         return json({"error": "invalid_code", "message": str(exc)}, status=401)
 
+    token = create_token(user.id, user.role)
     response = json({
         "message": "signed_in",
+        "token": token,
         "role": user.role,
         "user_id": user.id,
         "email": user.email,

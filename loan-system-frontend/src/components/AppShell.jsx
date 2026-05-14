@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link as RouterLink, useLocation } from "react-router-dom";
 import { clearAuth, getAuth } from "../auth/auth";
 import api from "../api/client";
@@ -50,7 +50,10 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
   const auth = getAuth();
   const role = String(auth?.role || "ANALYST").toUpperCase();
   const portalLabel = role === "ADMIN" ? "Admin Portal" : "Analyst Portal";
-  const roleSummary = role === "ADMIN" ? "Operations and approvals" : "Assessment workspace";
+  const [desktopNavOpen, setDesktopNavOpen] = useState(() => {
+    const stored = localStorage.getItem("desktop-nav-open");
+    return stored === null ? true : stored === "true";
+  });
   const [mobileOpen, setMobileOpen] = useState(false);
 
   async function logout() {
@@ -80,19 +83,6 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
     if (path.startsWith("/clients")) return "Clients";
     if (path.startsWith("/admin")) return "Administration";
     return "Loan Management";
-  }, [location.pathname]);
-
-  const pageSubtitle = useMemo(() => {
-    const path = location.pathname;
-    if (path === "/") return "Daily pipeline, risk movement, and recent activity.";
-    if (path.startsWith("/applications/new")) return "Create a clean application record with the right client and creditline.";
-    if (path.startsWith("/applications/")) return "Review scoring, decisions, and financial context.";
-    if (path.startsWith("/applications")) return "Track submitted, scored, approved, and rejected applications.";
-    if (path.startsWith("/clients/new")) return "Register a new borrower before loan assessment begins.";
-    if (path.startsWith("/clients/")) return "Inspect profile details and historical creditline records.";
-    if (path.startsWith("/clients")) return "Search, review, and maintain borrower records.";
-    if (path.startsWith("/admin")) return "Manage access and administrative operations.";
-    return "Loan assessment workspace.";
   }, [location.pathname]);
 
   const navSections = [
@@ -140,6 +130,18 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
     },
   });
 
+  useEffect(() => {
+    localStorage.setItem("desktop-nav-open", String(desktopNavOpen));
+  }, [desktopNavOpen]);
+
+  function toggleNavigation() {
+    if (isDesktop) {
+      setDesktopNavOpen((current) => !current);
+      return;
+    }
+    setMobileOpen((current) => !current);
+  }
+
   const drawerContent = (
     <>
       <Box sx={{ px: 2, pt: 2, pb: 1.5 }}>
@@ -181,7 +183,7 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
           </Stack>
 
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, lineHeight: 1.5 }}>
-            {roleSummary}
+            {role === "ADMIN" ? "Operations and approvals" : "Assessment workspace"}
           </Typography>
         </Box>
       </Box>
@@ -218,24 +220,6 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
         ))}
       </List>
 
-      <Box sx={{ px: 2, pb: 2, pt: 1 }}>
-        <Box
-          sx={{
-            p: 1.5,
-            borderRadius: 2.5,
-            backgroundColor: isDark ? "rgba(148, 163, 184, 0.08)" : "rgba(15, 23, 42, 0.03)",
-            border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.12)" : "rgba(148, 163, 184, 0.18)"}`,
-          }}
-        >
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Quick note
-          </Typography>
-          <Typography variant="body2" sx={{ lineHeight: 1.5 }}>
-            Use the drawer on smaller screens. Navigation stays one tap away without crowding the workspace.
-          </Typography>
-        </Box>
-      </Box>
-
       <Divider />
 
       <List sx={{ py: 1.2 }}>
@@ -266,23 +250,34 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
       }}
     >
       {isDesktop && (
-        <Drawer
-          variant="permanent"
+        <Box
           sx={{
-            width: drawerWidth,
+            width: desktopNavOpen ? drawerWidth : 0,
             flexShrink: 0,
-            [`& .MuiDrawer-paper`]: {
-              width: drawerWidth,
-              boxSizing: "border-box",
-              borderRight: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "#e6eaf2"}`,
-              background: isDark
-                ? "linear-gradient(180deg, #111827 0%, #0f172a 100%)"
-                : "linear-gradient(180deg, #ffffff 0%, #f9fbff 100%)",
-            },
+            overflow: "hidden",
+            transition: theme.transitions.create("width", {
+              duration: theme.transitions.duration.standard,
+            }),
           }}
         >
-          {drawerContent}
-        </Drawer>
+          <Drawer
+            variant="permanent"
+            sx={{
+              width: drawerWidth,
+              [`& .MuiDrawer-paper`]: {
+                position: "relative",
+                width: drawerWidth,
+                boxSizing: "border-box",
+                borderRight: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "#e6eaf2"}`,
+                background: isDark
+                  ? "linear-gradient(180deg, #111827 0%, #0f172a 100%)"
+                  : "linear-gradient(180deg, #ffffff 0%, #f9fbff 100%)",
+              },
+            }}
+          >
+            {drawerContent}
+          </Drawer>
+        </Box>
       )}
 
       {!isDesktop && (
@@ -345,8 +340,22 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
             {!isDesktop && (
               <IconButton
                 edge="start"
-                aria-label="Open navigation"
-                onClick={() => setMobileOpen(true)}
+                aria-label="Toggle navigation"
+                onClick={toggleNavigation}
+                color="primary"
+                sx={{
+                  border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.16)"}`,
+                  borderRadius: 2.5,
+                }}
+              >
+                <MenuIcon />
+              </IconButton>
+            )}
+            {isDesktop && (
+              <IconButton
+                edge="start"
+                aria-label="Toggle navigation"
+                onClick={toggleNavigation}
                 color="primary"
                 sx={{
                   border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(37, 99, 235, 0.16)"}`,
@@ -366,11 +375,8 @@ export default function AppShell({ children, colorMode = "light", onToggleColorM
                   <Chip size="small" variant="outlined" color="primary" label={portalLabel} />
                 )}
               </Stack>
-              <Typography variant="body2" color="text.secondary" noWrap={!isDesktop}>
-                {pageSubtitle}
-              </Typography>
               {!isDesktop && (
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block", mt: 0.25 }}>
+                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
                   {portalLabel}
                 </Typography>
               )}

@@ -150,9 +150,6 @@ export default function Clients() {
       >
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800 }}>Clients</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Search borrower profiles, manage access to their records, and review account status.
-          </Typography>
         </Box>
         <Chip label={`${total} total`} color="primary" variant="outlined" />
       </Stack>

@@ -185,9 +185,6 @@ export default function Applications() {
       >
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 800 }}>Applications</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Search, review, and act on submitted loan applications across the workflow.
-          </Typography>
         </Box>
         <Chip label={`${items.length} shown${status ? ` - ${status}` : ""}`} color="primary" variant="outlined" />
       </Stack>

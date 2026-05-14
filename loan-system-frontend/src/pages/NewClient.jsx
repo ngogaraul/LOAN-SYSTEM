@@ -72,9 +72,6 @@ export default function NewClient() {
     <Box>
       <Box sx={{ mb: 2 }}>
         <Typography variant="h5" sx={{ fontWeight: 800 }}>Create Client</Typography>
-        <Typography variant="body2" color="text.secondary">
-          Start with a clean borrower profile so later scoring and decisions have the right customer context.
-        </Typography>
       </Box>
       <Paper sx={{ p: { xs: 1.5, sm: 2.5 }, maxWidth: 720, borderRadius: 3 }}>
         <Stack spacing={2}>

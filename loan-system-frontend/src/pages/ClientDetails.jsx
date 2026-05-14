@@ -145,9 +145,6 @@ export default function ClientDetails() {
           <Typography variant="body2" color="text.secondary">
             Phone: {data.phone || "-"}
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            View profile details and every imported creditline in a cleaner mobile-friendly layout.
-          </Typography>
         </Box>
 
         {isMobile ? (

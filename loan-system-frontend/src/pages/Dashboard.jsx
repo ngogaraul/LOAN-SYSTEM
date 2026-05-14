@@ -17,10 +17,8 @@ import {
   Stack,
   TableContainer,
   useMediaQuery,
-  Button,
 } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 
 function statusColor(status) {
   if (status === "APPROVED") return "success";
@@ -121,30 +119,12 @@ export default function Dashboard() {
           spacing={2}
         >
           <Box sx={{ maxWidth: 760 }}>
-            <Typography variant="overline" color="primary.main" sx={{ letterSpacing: "0.12em" }}>
-              Live overview
-            </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 800, mt: 0.5 }}>
+            <Typography variant="h5" sx={{ fontWeight: 800 }}>
               Dashboard
             </Typography>
-            <Typography variant="body1" color="text.secondary" sx={{ mt: 1, maxWidth: 640 }}>
-              Monitor application flow, recent scoring activity, and risk distribution without jumping between screens.
-            </Typography>
           </Box>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            sx={{ width: { xs: "100%", md: "auto" } }}
-          >
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", md: "auto" } }}>
             <Chip label={`Total applications: ${totalApplications}`} color="primary" />
-            <Button
-              variant="outlined"
-              endIcon={<ArrowForwardIcon />}
-              onClick={() => navigate("/applications")}
-              sx={{ alignSelf: { xs: "stretch", sm: "center" } }}
-            >
-              Review pipeline
-            </Button>
           </Stack>
         </Stack>
       </Paper>
@@ -152,9 +132,6 @@ export default function Dashboard() {
       <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} sx={{ mb: 2 }} spacing={1}>
         <Box>
           <Typography variant="h6" sx={{ fontWeight: 700 }}>Application Status</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Snapshot of the current workflow by decision stage.
-          </Typography>
         </Box>
       </Stack>
 
@@ -198,9 +175,6 @@ export default function Dashboard() {
           sx={{ mb: 1 }}
         >
           <Typography variant="h6" sx={{ fontWeight: 700 }}>Recent Applications</Typography>
-          <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => navigate("/applications")}>
-            View all
-          </Button>
         </Stack>
         {recent.length === 0 ? (
           <Typography variant="body2" color="text.secondary">No recent applications.</Typography>

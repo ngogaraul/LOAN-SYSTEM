@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.http_client import call_scoring_api
+from app.http_client import ScoringServiceError, call_scoring_api
 from app.models import Client, CreditScore, CreditlineFinancial, LoanApplication
 from app.utils import payload_signature
 
@@ -179,6 +179,12 @@ async def score_application_by_id(
 
     try:
         result = await call_scoring_api(payload)
+    except ScoringServiceError as exc:
+        status_code = 503 if exc.status_code == 429 else 502
+        return status_code, {
+            "error": "scoring_service_failed",
+            "message": str(exc),
+        }
     except Exception as exc:
         return 502, {
             "error": "scoring_service_failed",

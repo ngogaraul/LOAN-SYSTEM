@@ -76,7 +76,6 @@ def _clear_session_cookie(response) -> None:
     response.delete_cookie(
         AUTH_SESSION_COOKIE_NAME,
         path="/",
-        httponly=True,
         secure=AUTH_SESSION_COOKIE_SECURE,
         samesite=AUTH_SESSION_COOKIE_SAMESITE,
     )

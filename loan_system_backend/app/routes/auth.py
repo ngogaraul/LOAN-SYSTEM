@@ -29,12 +29,24 @@ from app.config import (
     OIDC_TOKEN_URL,
 )
 from app.db import SessionLocal
-from app.email_login import create_user_session, deliver_login_code, issue_login_code, revoke_session, verify_login_code
+from app.email_login import (
+    create_user_session,
+    deliver_admin_action_code,
+    deliver_login_code,
+    issue_admin_action_code,
+    issue_login_code,
+    revoke_session,
+    verify_login_code,
+)
 from app.models import User
 from app.security import create_token, decode_token, hash_password, verify_password
 
 bp = Blueprint("auth", url_prefix="/auth")
 _LOGIN_ATTEMPTS: dict[str, deque[float]] = {}
+_ADMIN_ACTIONS = {
+    "edit_creditline": "editing a creditline",
+    "delete_creditline": "deleting a creditline",
+}
 
 
 def _login_rate_limit_key(request, email: str) -> str:
@@ -58,6 +70,10 @@ def _record_failed_attempt(key: str) -> None:
 
 def _clear_failed_attempts(key: str) -> None:
     _LOGIN_ATTEMPTS.pop(key, None)
+
+
+def _admin_action_target_ref(client_id: int, creditline: str) -> str:
+    return f"client:{client_id}:creditline:{str(creditline or '').strip()}"
 
 
 def _set_session_cookie(response, session_token: str) -> None:
@@ -246,6 +262,42 @@ async def verify_code(request):
     })
     _set_session_cookie(response, session_token)
     return response
+
+
+@bp.post("/admin-action/request-code")
+@require_auth(roles=["ADMIN"])
+async def request_admin_action_code(request):
+    if not auth_mode_uses_email_code():
+        return json({
+            "error": "email_code_disabled",
+            "message": "Admin email verification is not enabled.",
+        }, status=501)
+
+    data = request.json or {}
+    action = str(data.get("action") or "").strip().lower()
+    creditline = str(data.get("creditline") or "").strip()
+    client_id = int(data.get("client_id") or 0)
+
+    if action not in _ADMIN_ACTIONS:
+        return json({"error": "invalid_action"}, status=400)
+    if not client_id or not creditline:
+        return json({"error": "client_id_and_creditline_required"}, status=400)
+
+    async with SessionLocal() as session:
+        user = await session.get(User, int(request.ctx.user["id"]))
+        if not user:
+            return json({"error": "user_not_found"}, status=404)
+
+        target_ref = _admin_action_target_ref(client_id, creditline)
+        try:
+            code = await issue_admin_action_code(session, user, action, target_ref)
+            await deliver_admin_action_code(user.email, code, _ADMIN_ACTIONS[action])
+        except ValueError as exc:
+            return json({"error": "request_not_allowed", "message": str(exc)}, status=429)
+        except Exception as exc:
+            return json({"error": "email_delivery_failed", "message": str(exc)}, status=502)
+
+    return json({"message": "verification_code_sent"})
 
 
 @bp.post("/logout")

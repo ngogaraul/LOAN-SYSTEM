@@ -22,6 +22,7 @@ class User(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     login_codes: Mapped[list["LoginCode"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    admin_action_codes: Mapped[list["AdminActionCode"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class LoginCode(Base):
@@ -58,6 +59,25 @@ class UserSession(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship(back_populates="sessions")
+
+
+class AdminActionCode(Base):
+    __tablename__ = "admin_action_codes"
+    __table_args__ = (
+        Index("ix_admin_action_codes_email_action_target_created", "email", "action", "target_ref", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    email: Mapped[str] = mapped_column(String(180), index=True)
+    action: Mapped[str] = mapped_column(String(64), index=True)
+    target_ref: Mapped[str] = mapped_column(String(255), index=True)
+    code_hash: Mapped[str] = mapped_column(String(255))
+    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    user: Mapped["User"] = relationship(back_populates="admin_action_codes")
 
 
 class Client(Base):

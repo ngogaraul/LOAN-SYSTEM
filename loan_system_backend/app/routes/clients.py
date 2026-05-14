@@ -5,7 +5,8 @@ from sqlalchemy import select, desc, or_, func
 from app.cache import api_cache, invalidate_all_api_cache
 from app.config import API_CACHE_TTL_SEC
 from app.db import SessionLocal
-from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial
+from app.email_login import verify_admin_action_code
+from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial, User
 from app.auth_guard import require_auth
 from app.score_service import mark_client_applications_stale
 
@@ -34,6 +35,10 @@ def _status_upper(v: str) -> str:
 
 def _creditline_value(v: str) -> str:
     return str(v or "").strip()
+
+
+def _creditline_target_ref(client_id: int, creditline: str) -> str:
+    return f"client:{client_id}:creditline:{_creditline_value(creditline)}"
 
 
 def _is_orphan_shell_creditline(row, linked_creditline_values: set[str]) -> bool:
@@ -135,6 +140,24 @@ def _apply_creditline_updates(row, data):
 
     if "start_date" in data:
         row.start_date = str(data.get("start_date") or "").strip()
+
+
+async def _get_verified_admin_for_creditline_action(session, request, action: str, client_id: int, creditline: str, verification_code: str):
+    if not verification_code:
+        raise ValueError("Verification code is required for this action.")
+
+    user = await session.get(User, int(request.ctx.user["id"]))
+    if not user:
+        raise ValueError("Admin user could not be found.")
+
+    await verify_admin_action_code(
+        session,
+        user,
+        action,
+        _creditline_target_ref(client_id, creditline),
+        verification_code,
+    )
+    return user
 
 
 @bp.post("/")
@@ -484,6 +507,19 @@ async def update_creditline(request, client_id: int, creditline_id: int):
 
         original_creditline = _creditline_value(row.creditline)
         updated_creditline = original_creditline
+        verification_code = str(data.get("verification_code") or "").strip()
+
+        try:
+            await _get_verified_admin_for_creditline_action(
+                session,
+                request,
+                "edit_creditline",
+                client_id,
+                original_creditline,
+                verification_code,
+            )
+        except ValueError as exc:
+            return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
 
         if "creditline" in data:
             updated_creditline = _creditline_value(data.get("creditline"))
@@ -541,9 +577,100 @@ async def update_creditline(request, client_id: int, creditline_id: int):
         })
 
 
+@bp.put("/<client_id:int>/creditlines/by-value")
+@require_auth(roles=["ADMIN"])
+async def update_creditline_by_value(request, client_id: int):
+    data = request.json or {}
+
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        current_creditline = _creditline_value(data.get("current_creditline") or data.get("creditline"))
+        if not current_creditline:
+            return json({"error": "creditline is required"}, status=400)
+
+        verification_code = str(data.get("verification_code") or "").strip()
+        try:
+            await _get_verified_admin_for_creditline_action(
+                session,
+                request,
+                "edit_creditline",
+                client_id,
+                current_creditline,
+                verification_code,
+            )
+        except ValueError as exc:
+            return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
+
+        row = await session.scalar(
+            select(CreditlineFinancial).where(
+                CreditlineFinancial.client_id == client_id,
+                CreditlineFinancial.creditline == current_creditline,
+            )
+        )
+        if not row:
+            row = CreditlineFinancial(client_id=client_id, creditline=current_creditline)
+            session.add(row)
+
+        updated_creditline = _creditline_value(data.get("creditline") or current_creditline)
+        if not updated_creditline:
+            return json({"error": "creditline is required"}, status=400)
+
+        if updated_creditline != current_creditline:
+            duplicate_row = await session.scalar(
+                select(CreditlineFinancial.id).where(
+                    CreditlineFinancial.client_id == client_id,
+                    CreditlineFinancial.creditline == updated_creditline,
+                )
+            )
+            if duplicate_row:
+                return json({
+                    "error": "creditline_exists",
+                    "message": "A creditline with that value already exists for this client.",
+                }, status=409)
+
+            conflicting_application = await session.scalar(
+                select(LoanApplication.id).where(LoanApplication.creditline == updated_creditline)
+            )
+            if conflicting_application:
+                return json({
+                    "error": "creditline_in_use",
+                    "message": "That creditline is already linked to another loan application.",
+                }, status=409)
+
+        linked_application = await session.scalar(
+            select(LoanApplication).where(
+                LoanApplication.client_id == client_id,
+                LoanApplication.creditline == current_creditline,
+            )
+        )
+
+        row.creditline = updated_creditline
+        _apply_creditline_updates(row, data)
+
+        if linked_application and updated_creditline != current_creditline:
+            linked_application.creditline = updated_creditline
+
+        await mark_client_applications_stale(session, client_id)
+        await session.commit()
+        await invalidate_all_api_cache()
+
+        if linked_application and updated_creditline != current_creditline:
+            await session.refresh(linked_application)
+
+        return json({
+            "message": "creditline updated",
+            "creditline": _build_creditline_payload(row, linked_application),
+        })
+
+
 @bp.delete("/<client_id:int>/creditlines/<creditline_id:int>")
 @require_auth(roles=["ADMIN"])
 async def delete_creditline(request, client_id: int, creditline_id: int):
+    data = request.json or {}
+
     async with SessionLocal() as session:
         client = await session.get(Client, client_id)
         if not client:
@@ -557,6 +684,19 @@ async def delete_creditline(request, client_id: int, creditline_id: int):
         )
         if not row:
             return json({"error": "creditline not found"}, status=404)
+
+        verification_code = str(data.get("verification_code") or "").strip()
+        try:
+            await _get_verified_admin_for_creditline_action(
+                session,
+                request,
+                "delete_creditline",
+                client_id,
+                row.creditline,
+                verification_code,
+            )
+        except ValueError as exc:
+            return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
 
         linked_application_id = await session.scalar(
             select(LoanApplication.id).where(
@@ -580,6 +720,65 @@ async def delete_creditline(request, client_id: int, creditline_id: int):
             "client_id": client_id,
             "creditline_id": creditline_id,
             "creditline": deleted_creditline,
+        })
+
+
+@bp.delete("/<client_id:int>/creditlines/by-value")
+@require_auth(roles=["ADMIN"])
+async def delete_creditline_by_value(request, client_id: int):
+    data = request.json or {}
+    creditline = _creditline_value(data.get("creditline"))
+
+    if not creditline:
+        return json({"error": "creditline is required"}, status=400)
+
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        verification_code = str(data.get("verification_code") or "").strip()
+        try:
+            await _get_verified_admin_for_creditline_action(
+                session,
+                request,
+                "delete_creditline",
+                client_id,
+                creditline,
+                verification_code,
+            )
+        except ValueError as exc:
+            return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
+
+        linked_application_id = await session.scalar(
+            select(LoanApplication.id).where(
+                LoanApplication.client_id == client_id,
+                LoanApplication.creditline == creditline,
+            )
+        )
+        if linked_application_id:
+            return json({
+                "error": "creditline_linked",
+                "message": "This creditline is linked to a loan application and cannot be deleted.",
+            }, status=409)
+
+        row = await session.scalar(
+            select(CreditlineFinancial).where(
+                CreditlineFinancial.client_id == client_id,
+                CreditlineFinancial.creditline == creditline,
+            )
+        )
+        if not row:
+            return json({"error": "creditline not found"}, status=404)
+
+        await session.delete(row)
+        await session.commit()
+        await invalidate_all_api_cache()
+
+        return json({
+            "message": "creditline deleted",
+            "client_id": client_id,
+            "creditline": creditline,
         })
 
 

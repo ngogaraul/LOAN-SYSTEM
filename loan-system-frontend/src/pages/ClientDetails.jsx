@@ -71,6 +71,7 @@ function applicationStatusColor(status) {
 function buildCreditlineDraft(creditline) {
   return {
     id: creditline?.id ?? null,
+    current_creditline: creditline?.creditline || "",
     creditline: creditline?.creditline || "",
     outstanding: String(creditline?.outstanding ?? 0),
     principal_arrears: String(creditline?.principal_arrears ?? 0),
@@ -111,8 +112,12 @@ export default function ClientDetails() {
   const [creditlineEditOpen, setCreditlineEditOpen] = useState(false);
   const [creditlineDraft, setCreditlineDraft] = useState(null);
   const [savingCreditline, setSavingCreditline] = useState(false);
+  const [sendingEditCode, setSendingEditCode] = useState(false);
+  const [editVerificationCode, setEditVerificationCode] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deletingCreditline, setDeletingCreditline] = useState(false);
+  const [sendingDeleteCode, setSendingDeleteCode] = useState(false);
+  const [deleteVerificationCode, setDeleteVerificationCode] = useState("");
 
   async function loadClient() {
     setErr("");
@@ -165,12 +170,14 @@ export default function ClientDetails() {
   }
 
   function openCreditlineEditor(creditline) {
-    if (!creditline?.id) {
-      enqueueSnackbar("This creditline cannot be edited from here.", { variant: "warning" });
-      return;
-    }
     setCreditlineDraft(buildCreditlineDraft(creditline));
+    setEditVerificationCode("");
     setCreditlineEditOpen(true);
+  }
+
+  function openDeleteDialog(creditline) {
+    setDeleteTarget(creditline);
+    setDeleteVerificationCode("");
   }
 
   function updateCreditlineField(field, value) {
@@ -180,12 +187,36 @@ export default function ClientDetails() {
     }));
   }
 
+  async function sendAdminVerificationCode(action, creditline, setSending) {
+    if (!creditline) return;
+
+    setSending(true);
+    try {
+      await api.post("/auth/admin-action/request-code", {
+        action,
+        client_id: Number(id),
+        creditline,
+      });
+      enqueueSnackbar("Verification code sent to the admin email.", { variant: "success" });
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to send verification code";
+      enqueueSnackbar(msg, { variant: "error" });
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function saveCreditline() {
-    if (!creditlineDraft?.id) return;
+    if (!creditlineDraft?.current_creditline) return;
+    if (!editVerificationCode.trim()) {
+      enqueueSnackbar("Enter the verification code sent to the admin email.", { variant: "warning" });
+      return;
+    }
 
     setSavingCreditline(true);
     try {
-      await api.put(`/clients/${id}/creditlines/${creditlineDraft.id}`, {
+      await api.put(`/clients/${id}/creditlines/by-value`, {
+        current_creditline: creditlineDraft.current_creditline,
         creditline: creditlineDraft.creditline,
         outstanding: creditlineDraft.outstanding,
         principal_arrears: creditlineDraft.principal_arrears,
@@ -201,10 +232,12 @@ export default function ClientDetails() {
         compulsory_saving: creditlineDraft.compulsory_saving,
         voluntary_saving: creditlineDraft.voluntary_saving,
         salary: creditlineDraft.salary,
+        verification_code: editVerificationCode,
       });
       enqueueSnackbar("Creditline updated.", { variant: "success" });
       setCreditlineEditOpen(false);
       setCreditlineDraft(null);
+      setEditVerificationCode("");
       await loadCreditlines();
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to update creditline";
@@ -215,13 +248,23 @@ export default function ClientDetails() {
   }
 
   async function deleteCreditline() {
-    if (!deleteTarget?.id) return;
+    if (!deleteTarget?.creditline) return;
+    if (!deleteVerificationCode.trim()) {
+      enqueueSnackbar("Enter the verification code sent to the admin email.", { variant: "warning" });
+      return;
+    }
 
     setDeletingCreditline(true);
     try {
-      await api.delete(`/clients/${id}/creditlines/${deleteTarget.id}`);
+      await api.delete(`/clients/${id}/creditlines/by-value`, {
+        data: {
+          creditline: deleteTarget.creditline,
+          verification_code: deleteVerificationCode,
+        },
+      });
       enqueueSnackbar("Creditline deleted.", { variant: "success" });
       setDeleteTarget(null);
+      setDeleteVerificationCode("");
       await loadCreditlines();
     } catch (e) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to delete creditline";
@@ -343,23 +386,26 @@ export default function ClientDetails() {
 
                     {isAdmin && (
                       <Stack direction="row" spacing={0.5}>
-                        <Tooltip title={creditline.id ? "Edit creditline" : "View-only creditline"}>
-                          <span>
-                            <IconButton size="small" onClick={() => openCreditlineEditor(creditline)} disabled={!creditline.id}>
-                              <EditIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<EditIcon fontSize="small" />}
+                          onClick={() => openCreditlineEditor(creditline)}
+                        >
+                          Edit
+                        </Button>
                         <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
                           <span>
-                            <IconButton
+                            <Button
                               size="small"
                               color="error"
-                              onClick={() => setDeleteTarget(creditline)}
-                              disabled={!creditline.id || creditline.has_linked_application}
+                              variant="outlined"
+                              startIcon={<DeleteOutlineIcon fontSize="small" />}
+                              onClick={() => openDeleteDialog(creditline)}
+                              disabled={creditline.has_linked_application}
                             >
-                              <DeleteOutlineIcon fontSize="small" />
-                            </IconButton>
+                              Delete
+                            </Button>
                           </span>
                         </Tooltip>
                       </Stack>
@@ -471,23 +517,26 @@ export default function ClientDetails() {
                       {isAdmin && (
                         <TableCell align="right">
                           <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-                            <Tooltip title={creditline.id ? "Edit creditline" : "View-only creditline"}>
-                              <span>
-                                <IconButton size="small" onClick={() => openCreditlineEditor(creditline)} disabled={!creditline.id}>
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<EditIcon fontSize="small" />}
+                              onClick={() => openCreditlineEditor(creditline)}
+                            >
+                              Edit
+                            </Button>
                             <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
                               <span>
-                                <IconButton
+                                <Button
                                   size="small"
                                   color="error"
-                                  onClick={() => setDeleteTarget(creditline)}
-                                  disabled={!creditline.id || creditline.has_linked_application}
+                                  variant="outlined"
+                                  startIcon={<DeleteOutlineIcon fontSize="small" />}
+                                  onClick={() => openDeleteDialog(creditline)}
+                                  disabled={creditline.has_linked_application}
                                 >
-                                  <DeleteOutlineIcon fontSize="small" />
-                                </IconButton>
+                                  Delete
+                                </Button>
                               </span>
                             </Tooltip>
                           </Stack>
@@ -535,6 +584,28 @@ export default function ClientDetails() {
       >
         <DialogTitle>Edit Creditline</DialogTitle>
         <DialogContent>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Alert severity="warning">
+              Editing a creditline changes client financial data. A verification code must be sent to the admin email and entered before saving.
+            </Alert>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <TextField
+                fullWidth
+                label="Verification Code"
+                value={editVerificationCode}
+                onChange={(e) => setEditVerificationCode(e.target.value)}
+                helperText="Enter the code sent to the admin email."
+              />
+              <Button
+                variant="outlined"
+                onClick={() => sendAdminVerificationCode("edit_creditline", creditlineDraft?.current_creditline || creditlineDraft?.creditline, setSendingEditCode)}
+                disabled={sendingEditCode || !creditlineDraft?.current_creditline}
+                sx={{ minWidth: { xs: "100%", sm: 180 } }}
+              >
+                {sendingEditCode ? "Sending..." : "Send Code"}
+              </Button>
+            </Stack>
+          </Stack>
           <Grid container spacing={2} sx={{ mt: 0.25 }}>
             <Grid item xs={12} sm={6}>
               <TextField
@@ -594,7 +665,15 @@ export default function ClientDetails() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreditlineEditOpen(false)} disabled={savingCreditline}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setCreditlineEditOpen(false);
+              setEditVerificationCode("");
+            }}
+            disabled={savingCreditline}
+          >
+            Cancel
+          </Button>
           <Button variant="contained" onClick={saveCreditline} disabled={savingCreditline}>
             {savingCreditline ? "Saving..." : "Save"}
           </Button>
@@ -609,12 +688,42 @@ export default function ClientDetails() {
       >
         <DialogTitle>Delete Creditline</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" color="text.secondary">
-            Delete creditline <b>{deleteTarget?.creditline || "-"}</b>? This cannot be undone.
-          </Typography>
+          <Stack spacing={2} sx={{ mt: 0.5 }}>
+            <Alert severity="warning">
+              Deleting a creditline permanently removes its financial record. A verification code must be entered to confirm this action.
+            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              Delete creditline <b>{deleteTarget?.creditline || "-"}</b>? This cannot be undone.
+            </Typography>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <TextField
+                fullWidth
+                label="Verification Code"
+                value={deleteVerificationCode}
+                onChange={(e) => setDeleteVerificationCode(e.target.value)}
+                helperText="Enter the code sent to the admin email."
+              />
+              <Button
+                variant="outlined"
+                onClick={() => sendAdminVerificationCode("delete_creditline", deleteTarget?.creditline, setSendingDeleteCode)}
+                disabled={sendingDeleteCode || !deleteTarget?.creditline}
+                sx={{ minWidth: { xs: "100%", sm: 180 } }}
+              >
+                {sendingDeleteCode ? "Sending..." : "Send Code"}
+              </Button>
+            </Stack>
+          </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)} disabled={deletingCreditline}>Cancel</Button>
+          <Button
+            onClick={() => {
+              setDeleteTarget(null);
+              setDeleteVerificationCode("");
+            }}
+            disabled={deletingCreditline}
+          >
+            Cancel
+          </Button>
           <Button color="error" variant="contained" onClick={deleteCreditline} disabled={deletingCreditline}>
             {deletingCreditline ? "Deleting..." : "Delete"}
           </Button>

@@ -18,6 +18,7 @@ def require_auth(roles=None):
         async def wrapper(request, *args, **kwargs):
             user_id = None
             role = ""
+            email = ""
             cookie_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
 
             if auth_mode_uses_email_code() and cookie_token:
@@ -27,6 +28,7 @@ def require_auth(roles=None):
                     return json({"error": "invalid_session"}, status=401)
                 user_id = user.id
                 role = str(user.role or "").strip().upper()
+                email = str(user.email or "").strip().lower()
             else:
                 auth_header = request.headers.get("Authorization", "")
                 if not auth_header.startswith("Bearer "):
@@ -52,10 +54,12 @@ def require_auth(roles=None):
                         local_user = await session.scalar(select(User).where(User.id == int(user_id)))
                         if local_user:
                             role = str(local_user.role or role).strip().upper()
+                            email = str(local_user.email or "").strip().lower()
 
             request.ctx.user = {
                 "id": int(user_id),
-                "role": role
+                "role": role,
+                "email": email,
             }
 
             if roles and role not in roles:

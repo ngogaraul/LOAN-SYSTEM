@@ -37,7 +37,7 @@ from app.config import (
     SMTP_USE_SSL,
     SMTP_USE_TLS,
 )
-from app.models import LoginCode, User, UserSession
+from app.models import AdminActionCode, LoginCode, User, UserSession
 
 
 def utc_now() -> datetime:
@@ -120,6 +120,92 @@ async def verify_login_code(session: AsyncSession, email: str, code: str) -> Use
     if not user:
         raise ValueError("The linked user account was not found.")
     return user
+
+
+async def ensure_admin_action_not_rate_limited(
+    session: AsyncSession,
+    email: str,
+    action: str,
+    target_ref: str,
+) -> None:
+    latest_code = await session.scalar(
+        select(AdminActionCode)
+        .where(
+            AdminActionCode.email == email,
+            AdminActionCode.action == action,
+            AdminActionCode.target_ref == target_ref,
+        )
+        .order_by(AdminActionCode.created_at.desc())
+        .limit(1)
+    )
+    if not latest_code:
+        return
+    elapsed = (utc_now() - latest_code.created_at).total_seconds()
+    if elapsed < EMAIL_CODE_RESEND_COOLDOWN_SEC:
+        remaining = int(max(1, EMAIL_CODE_RESEND_COOLDOWN_SEC - elapsed))
+        raise ValueError(f"Please wait {remaining} seconds before requesting another code.")
+
+
+async def issue_admin_action_code(
+    session: AsyncSession,
+    user: User,
+    action: str,
+    target_ref: str,
+) -> str:
+    await ensure_admin_action_not_rate_limited(session, user.email, action, target_ref)
+
+    code = generate_login_code()
+    expires_at = utc_now() + timedelta(minutes=EMAIL_CODE_TTL_MIN)
+
+    await session.execute(
+        delete(AdminActionCode).where(
+            AdminActionCode.user_id == user.id,
+            AdminActionCode.action == action,
+            AdminActionCode.target_ref == target_ref,
+            AdminActionCode.used_at.is_(None),
+        )
+    )
+    session.add(
+        AdminActionCode(
+            user_id=user.id,
+            email=user.email,
+            action=action,
+            target_ref=target_ref,
+            code_hash=hash_secret(code),
+            expires_at=expires_at,
+        )
+    )
+    await session.commit()
+    return code
+
+
+async def verify_admin_action_code(
+    session: AsyncSession,
+    user: User,
+    action: str,
+    target_ref: str,
+    code: str,
+) -> None:
+    record = await session.scalar(
+        select(AdminActionCode)
+        .where(
+            AdminActionCode.user_id == user.id,
+            AdminActionCode.action == action,
+            AdminActionCode.target_ref == target_ref,
+            AdminActionCode.used_at.is_(None),
+        )
+        .order_by(AdminActionCode.created_at.desc())
+        .limit(1)
+    )
+    if not record:
+        raise ValueError("No active verification code found. Request a new one.")
+    if record.expires_at < utc_now():
+        raise ValueError("The verification code has expired. Request a new one.")
+    if not hmac.compare_digest(record.code_hash, hash_secret(code)):
+        raise ValueError("The verification code is invalid.")
+
+    record.used_at = utc_now()
+    await session.commit()
 
 
 async def create_user_session(session: AsyncSession, user: User) -> str:
@@ -252,22 +338,18 @@ async def _send_brevo_email(to_email: str, subject: str, html_body: str, text_bo
         )
 
 
-async def deliver_login_code(email: str, code: str, role: str) -> None:
-    subject = "Your Loan System login code"
-    text_body = (
-        f"Hello,\n\n"
-        f"Your one-time login code for the {role.title()} portal is: {code}\n\n"
-        f"This code expires in {EMAIL_CODE_TTL_MIN} minutes."
-    )
-    html_body = (
-        f"<h2>Loan System login code</h2>"
-        f"<p>Your one-time login code for the <strong>{role.title()}</strong> portal is:</p>"
-        f"<p style='font-size:28px;font-weight:bold;letter-spacing:4px;'>{code}</p>"
-        f"<p>This code expires in {EMAIL_CODE_TTL_MIN} minutes.</p>"
-    )
+async def _deliver_one_time_code(
+    *,
+    email: str,
+    code: str,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    debug_label: str,
+) -> None:
 
     if EMAIL_CODE_DELIVERY_MODE == "log":
-        print(f"[EMAIL_CODE_DEBUG] email={email} role={role} code={code}")
+        print(f"[{debug_label}] email={email} code={code}")
         return
 
     if EMAIL_CODE_DELIVERY_MODE == "resend":
@@ -285,3 +367,49 @@ async def deliver_login_code(email: str, code: str, role: str) -> None:
         )
     except asyncio.TimeoutError as exc:
         raise RuntimeError("SMTP delivery timed out.") from exc
+
+
+async def deliver_login_code(email: str, code: str, role: str) -> None:
+    subject = "Your Loan System login code"
+    text_body = (
+        f"Hello,\n\n"
+        f"Your one-time login code for the {role.title()} portal is: {code}\n\n"
+        f"This code expires in {EMAIL_CODE_TTL_MIN} minutes."
+    )
+    html_body = (
+        f"<h2>Loan System login code</h2>"
+        f"<p>Your one-time login code for the <strong>{role.title()}</strong> portal is:</p>"
+        f"<p style='font-size:28px;font-weight:bold;letter-spacing:4px;'>{code}</p>"
+        f"<p>This code expires in {EMAIL_CODE_TTL_MIN} minutes.</p>"
+    )
+    await _deliver_one_time_code(
+        email=email,
+        code=code,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+        debug_label="EMAIL_CODE_DEBUG",
+    )
+
+
+async def deliver_admin_action_code(email: str, code: str, action_label: str) -> None:
+    subject = "Your Loan System admin verification code"
+    text_body = (
+        f"Hello,\n\n"
+        f"Your admin verification code for {action_label} is: {code}\n\n"
+        f"This code expires in {EMAIL_CODE_TTL_MIN} minutes."
+    )
+    html_body = (
+        f"<h2>Loan System admin verification</h2>"
+        f"<p>Your verification code for <strong>{action_label}</strong> is:</p>"
+        f"<p style='font-size:28px;font-weight:bold;letter-spacing:4px;'>{code}</p>"
+        f"<p>This code expires in {EMAIL_CODE_TTL_MIN} minutes.</p>"
+    )
+    await _deliver_one_time_code(
+        email=email,
+        code=code,
+        subject=subject,
+        text_body=text_body,
+        html_body=html_body,
+        debug_label="ADMIN_ACTION_CODE_DEBUG",
+    )

@@ -66,6 +66,7 @@ AUTH_SESSION_COOKIE_SAMESITE = os.getenv(
     "None" if AUTH_SESSION_COOKIE_SECURE else "Lax",
 ).strip().capitalize()
 AUTH_SESSION_HOURS = int(os.getenv("AUTH_SESSION_HOURS", "12"))
+CREDITLINE_DELETE_UNDO_TTL_MIN = int(os.getenv("CREDITLINE_DELETE_UNDO_TTL_MIN", "30"))
 ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))

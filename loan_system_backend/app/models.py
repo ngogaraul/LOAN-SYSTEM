@@ -205,3 +205,19 @@ class CreditlineFinancial(Base):
     salary: Mapped[float] = mapped_column(Float, default=0)
 
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DeletedCreditline(Base):
+    __tablename__ = "deleted_creditlines"
+    __table_args__ = (
+        Index("ix_deleted_creditlines_client_creditline_created", "client_id", "creditline", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+    deleted_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    creditline: Mapped[str] = mapped_column(String(120), index=True)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True))
+    restored_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())

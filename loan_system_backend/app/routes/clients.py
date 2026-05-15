@@ -1,12 +1,13 @@
 from sanic import Blueprint
 from sanic.response import json
 from sqlalchemy import select, desc, or_, func
+from datetime import timedelta
 
 from app.cache import api_cache, invalidate_all_api_cache
-from app.config import API_CACHE_TTL_SEC
+from app.config import API_CACHE_TTL_SEC, CREDITLINE_DELETE_UNDO_TTL_MIN
 from app.db import SessionLocal
-from app.email_login import verify_admin_action_code
-from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial, User
+from app.email_login import utc_now, verify_admin_action_code
+from app.models import Client, ClientFinancial, LoanApplication, CreditlineFinancial, DeletedCreditline, User
 from app.auth_guard import require_auth
 from app.score_service import mark_client_applications_stale
 
@@ -117,6 +118,26 @@ def _build_creditline_payload(row, linked_application=None):
     }
 
 
+def _creditline_snapshot(row):
+    return {
+        "creditline": _creditline_value(getattr(row, "creditline", "")),
+        "outstanding": _to_float(getattr(row, "outstanding", 0), 0) or 0,
+        "principal_arrears": _to_float(getattr(row, "principal_arrears", 0), 0) or 0,
+        "interest_arrears": _to_float(getattr(row, "interest_arrears", 0), 0) or 0,
+        "payment_plan": _to_float(getattr(row, "payment_plan", 0), 0) or 0,
+        "interest_rate": _to_float(getattr(row, "interest_rate", 0), 0) or 0,
+        "days_in_arrears": _to_float(getattr(row, "days_in_arrears", 0), 0) or 0,
+        "start_date": str(getattr(row, "start_date", "") or ""),
+        "duration": _to_float(getattr(row, "duration", 0), 0) or 0,
+        "remaining_period": _to_float(getattr(row, "remaining_period", 0), 0) or 0,
+        "periodicity": _to_float(getattr(row, "periodicity", 0), 0) or 0,
+        "class_value": _to_float(getattr(row, "class_value", 0), 0) or 0,
+        "compulsory_saving": _to_float(getattr(row, "compulsory_saving", 0), 0) or 0,
+        "voluntary_saving": _to_float(getattr(row, "voluntary_saving", 0), 0) or 0,
+        "salary": _to_float(getattr(row, "salary", 0), 0) or 0,
+    }
+
+
 def _apply_creditline_updates(row, data):
     numeric_fields = (
         "outstanding",
@@ -158,6 +179,16 @@ async def _get_verified_admin_for_creditline_action(session, request, action: st
         verification_code,
     )
     return user
+
+
+def _build_deleted_creditline_record(row, user_id: int):
+    return DeletedCreditline(
+        client_id=row.client_id,
+        deleted_by_user_id=user_id,
+        creditline=_creditline_value(row.creditline),
+        snapshot=_creditline_snapshot(row),
+        expires_at=utc_now() + timedelta(minutes=max(CREDITLINE_DELETE_UNDO_TTL_MIN, 1)),
+    )
 
 
 @bp.post("/")
@@ -698,19 +729,9 @@ async def delete_creditline(request, client_id: int, creditline_id: int):
         except ValueError as exc:
             return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
 
-        linked_application_id = await session.scalar(
-            select(LoanApplication.id).where(
-                LoanApplication.client_id == client_id,
-                LoanApplication.creditline == _creditline_value(row.creditline),
-            )
-        )
-        if linked_application_id:
-            return json({
-                "error": "creditline_linked",
-                "message": "This creditline is linked to a loan application and cannot be deleted.",
-            }, status=409)
-
         deleted_creditline = _creditline_value(row.creditline)
+        deleted_record = _build_deleted_creditline_record(row, int(request.ctx.user["id"]))
+        session.add(deleted_record)
         await session.delete(row)
         await session.commit()
         await invalidate_all_api_cache()
@@ -720,6 +741,8 @@ async def delete_creditline(request, client_id: int, creditline_id: int):
             "client_id": client_id,
             "creditline_id": creditline_id,
             "creditline": deleted_creditline,
+            "deleted_creditline_id": deleted_record.id,
+            "undo_expires_at": deleted_record.expires_at.isoformat(),
         })
 
 
@@ -750,18 +773,6 @@ async def delete_creditline_by_value(request, client_id: int):
         except ValueError as exc:
             return json({"error": "invalid_verification_code", "message": str(exc)}, status=401)
 
-        linked_application_id = await session.scalar(
-            select(LoanApplication.id).where(
-                LoanApplication.client_id == client_id,
-                LoanApplication.creditline == creditline,
-            )
-        )
-        if linked_application_id:
-            return json({
-                "error": "creditline_linked",
-                "message": "This creditline is linked to a loan application and cannot be deleted.",
-            }, status=409)
-
         row = await session.scalar(
             select(CreditlineFinancial).where(
                 CreditlineFinancial.client_id == client_id,
@@ -771,6 +782,8 @@ async def delete_creditline_by_value(request, client_id: int):
         if not row:
             return json({"error": "creditline not found"}, status=404)
 
+        deleted_record = _build_deleted_creditline_record(row, int(request.ctx.user["id"]))
+        session.add(deleted_record)
         await session.delete(row)
         await session.commit()
         await invalidate_all_api_cache()
@@ -779,6 +792,83 @@ async def delete_creditline_by_value(request, client_id: int):
             "message": "creditline deleted",
             "client_id": client_id,
             "creditline": creditline,
+            "deleted_creditline_id": deleted_record.id,
+            "undo_expires_at": deleted_record.expires_at.isoformat(),
+        })
+
+
+@bp.post("/<client_id:int>/creditlines/undo-delete")
+@require_auth(roles=["ADMIN"])
+async def undo_delete_creditline(request, client_id: int):
+    data = request.json or {}
+    deleted_creditline_id = int(data.get("deleted_creditline_id") or 0)
+
+    if not deleted_creditline_id:
+        return json({"error": "deleted_creditline_id is required"}, status=400)
+
+    async with SessionLocal() as session:
+        client = await session.get(Client, client_id)
+        if not client:
+            return json({"error": "client not found"}, status=404)
+
+        deleted_record = await session.scalar(
+            select(DeletedCreditline).where(
+                DeletedCreditline.id == deleted_creditline_id,
+                DeletedCreditline.client_id == client_id,
+            )
+        )
+        if not deleted_record:
+            return json({"error": "deleted_creditline not found"}, status=404)
+        if deleted_record.restored_at:
+            return json({
+                "error": "already_restored",
+                "message": "This creditline has already been restored.",
+            }, status=409)
+        if deleted_record.expires_at < utc_now():
+            return json({
+                "error": "undo_expired",
+                "message": "The undo window has expired for this creditline.",
+            }, status=410)
+
+        snapshot = deleted_record.snapshot or {}
+        creditline = _creditline_value(snapshot.get("creditline") or deleted_record.creditline)
+        if not creditline:
+            return json({"error": "invalid_snapshot"}, status=500)
+
+        existing_creditline = await session.scalar(
+            select(CreditlineFinancial.id).where(
+                CreditlineFinancial.client_id == client_id,
+                CreditlineFinancial.creditline == creditline,
+            )
+        )
+        if existing_creditline:
+            return json({
+                "error": "creditline_exists",
+                "message": "A creditline with this value already exists and cannot be restored.",
+            }, status=409)
+
+        conflicting_application = await session.scalar(
+            select(LoanApplication).where(LoanApplication.creditline == creditline)
+        )
+        if conflicting_application and int(conflicting_application.client_id) != int(client_id):
+            return json({
+                "error": "creditline_in_use",
+                "message": "That creditline is already linked to another loan application and cannot be restored.",
+            }, status=409)
+
+        restored_row = CreditlineFinancial(client_id=client_id, creditline=creditline)
+        _apply_creditline_updates(restored_row, snapshot)
+        session.add(restored_row)
+        deleted_record.restored_at = utc_now()
+
+        await mark_client_applications_stale(session, client_id)
+        await session.commit()
+        await session.refresh(restored_row)
+        await invalidate_all_api_cache()
+
+        return json({
+            "message": "creditline restored",
+            "creditline": _build_creditline_payload(restored_row),
         })
 
 

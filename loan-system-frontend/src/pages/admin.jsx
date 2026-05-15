@@ -24,6 +24,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  IconButton,
+  Tooltip,
 } from "@mui/material";
 
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
@@ -31,6 +33,7 @@ import PersonAddAltIcon from "@mui/icons-material/PersonAddAlt";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import EditIcon from "@mui/icons-material/Edit";
 
 const ROLES = ["ANALYST", "ADMIN"];
 
@@ -64,6 +67,15 @@ export default function Admin() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteRow, setDeleteRow] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editRow, setEditRow] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "ANALYST",
+  });
 
   const stats = useMemo(() => {
     const total = users.length;
@@ -154,6 +166,17 @@ export default function Admin() {
     setDeleteOpen(true);
   }
 
+  function openEdit(u) {
+    setEditRow(u);
+    setEditForm({
+      name: u.name || "",
+      email: u.email || "",
+      password: "",
+      role: String(u.role || "ANALYST").toUpperCase(),
+    });
+    setEditOpen(true);
+  }
+
   async function confirmDelete() {
     if (!deleteRow) return;
     setDeleting(true);
@@ -168,6 +191,37 @@ export default function Admin() {
       enqueueSnackbar(msg, { variant: "error" });
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function saveUserEdit() {
+    if (!editRow) return;
+
+    const payload = {
+      name: editForm.name.trim(),
+      email: editForm.email.trim().toLowerCase(),
+      role: editForm.role,
+      password: editForm.password,
+    };
+
+    if (!payload.name || !payload.email) {
+      enqueueSnackbar("Name and email are required.", { variant: "warning" });
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await api.put(`/admin/users/${editRow.id}`, payload);
+      enqueueSnackbar("User updated.", { variant: "success" });
+      setEditOpen(false);
+      setEditRow(null);
+      setEditForm({ name: "", email: "", password: "", role: "ANALYST" });
+      await loadUsers();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || "Update failed";
+      enqueueSnackbar(msg, { variant: "error" });
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -318,18 +372,40 @@ export default function Admin() {
                   </TableCell>
                   <TableCell>{u.created_at}</TableCell>
                   <TableCell align="right">
-                    <Button
-                      color="error"
-                      size="small"
-                      startIcon={<DeleteOutlineIcon />}
-                      onClick={() => openDelete(u)}
-                      disabled={
-                        String(u.role || "").toUpperCase() === "ADMIN" ||
-                        (externalUserManagement && u.auth_source === "oidc")
-                      }
-                    >
-                      Delete
-                    </Button>
+                    <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+                      <Tooltip title={externalUserManagement && u.auth_source === "oidc" ? "Managed externally" : "Edit user"}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() => openEdit(u)}
+                            disabled={externalUserManagement && u.auth_source === "oidc"}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip
+                        title={
+                          me?.id === u.id
+                            ? "You cannot delete your current account"
+                            : (externalUserManagement && u.auth_source === "oidc")
+                              ? "Managed externally"
+                              : "Delete user"
+                        }
+                      >
+                        <span>
+                          <Button
+                            color="error"
+                            size="small"
+                            startIcon={<DeleteOutlineIcon />}
+                            onClick={() => openDelete(u)}
+                            disabled={me?.id === u.id || (externalUserManagement && u.auth_source === "oidc")}
+                          >
+                            Delete
+                          </Button>
+                        </span>
+                      </Tooltip>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}
@@ -367,6 +443,55 @@ export default function Admin() {
             disabled={deleting}
           >
             {deleting ? "Deleting..." : "Delete"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit user</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Alert severity="warning">
+              If you change a user email used for email-code access, update the backend environment allow-list after saving.
+            </Alert>
+            <TextField
+              label="Name"
+              value={editForm.name}
+              onChange={(e) => setEditForm((previousForm) => ({ ...previousForm, name: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Email"
+              value={editForm.email}
+              onChange={(e) => setEditForm((previousForm) => ({ ...previousForm, email: e.target.value }))}
+              fullWidth
+            />
+            <TextField
+              select
+              label="Role"
+              value={editForm.role}
+              onChange={(e) => setEditForm((previousForm) => ({ ...previousForm, role: e.target.value }))}
+              SelectProps={{ native: true }}
+              fullWidth
+            >
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </TextField>
+            <TextField
+              label="New password"
+              type="password"
+              value={editForm.password}
+              onChange={(e) => setEditForm((previousForm) => ({ ...previousForm, password: e.target.value }))}
+              fullWidth
+              helperText="Leave blank to keep the current password."
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={saveUserEdit} disabled={savingEdit}>
+            {savingEdit ? "Saving..." : "Save"}
           </Button>
         </DialogActions>
       </Dialog>

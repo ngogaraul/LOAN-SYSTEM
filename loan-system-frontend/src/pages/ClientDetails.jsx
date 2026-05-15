@@ -92,7 +92,7 @@ function buildCreditlineDraft(creditline) {
 
 export default function ClientDetails() {
   const { id } = useParams();
-  const { enqueueSnackbar } = useSnackbar();
+  const { enqueueSnackbar, closeSnackbar } = useSnackbar();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const role = (getAuth()?.role || "ANALYST").toUpperCase();
@@ -256,13 +256,39 @@ export default function ClientDetails() {
 
     setDeletingCreditline(true);
     try {
-      await api.delete(`/clients/${id}/creditlines/by-value`, {
+      const res = await api.delete(`/clients/${id}/creditlines/by-value`, {
         data: {
           creditline: deleteTarget.creditline,
           verification_code: deleteVerificationCode,
         },
       });
-      enqueueSnackbar("Creditline deleted.", { variant: "success" });
+      const deletedCreditlineId = res?.data?.deleted_creditline_id;
+      const deletedCreditlineLabel = deleteTarget.creditline;
+      enqueueSnackbar("Creditline deleted.", {
+        variant: "success",
+        persist: Boolean(deletedCreditlineId),
+        action: deletedCreditlineId ? (snackbarKey) => (
+          <Button
+            color="inherit"
+            size="small"
+            onClick={async () => {
+              try {
+                await api.post(`/clients/${id}/creditlines/undo-delete`, {
+                  deleted_creditline_id: deletedCreditlineId,
+                });
+                closeSnackbar(snackbarKey);
+                enqueueSnackbar(`Creditline ${deletedCreditlineLabel} restored.`, { variant: "success" });
+                await loadCreditlines();
+              } catch (e) {
+                const msg = e?.response?.data?.message || e?.response?.data?.error || "Failed to restore creditline";
+                enqueueSnackbar(msg, { variant: "error" });
+              }
+            }}
+          >
+            Undo
+          </Button>
+        ) : undefined,
+      });
       setDeleteTarget(null);
       setDeleteVerificationCode("");
       await loadCreditlines();
@@ -394,7 +420,7 @@ export default function ClientDetails() {
                         >
                           Edit
                         </Button>
-                        <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
+                        <Tooltip title="Delete creditline">
                           <span>
                             <Button
                               size="small"
@@ -402,7 +428,6 @@ export default function ClientDetails() {
                               variant="outlined"
                               startIcon={<DeleteOutlineIcon fontSize="small" />}
                               onClick={() => openDeleteDialog(creditline)}
-                              disabled={creditline.has_linked_application}
                             >
                               Delete
                             </Button>
@@ -525,7 +550,7 @@ export default function ClientDetails() {
                             >
                               Edit
                             </Button>
-                            <Tooltip title={creditline.has_linked_application ? "Linked creditlines cannot be deleted" : "Delete creditline"}>
+                            <Tooltip title="Delete creditline">
                               <span>
                                 <Button
                                   size="small"
@@ -533,7 +558,6 @@ export default function ClientDetails() {
                                   variant="outlined"
                                   startIcon={<DeleteOutlineIcon fontSize="small" />}
                                   onClick={() => openDeleteDialog(creditline)}
-                                  disabled={creditline.has_linked_application}
                                 >
                                   Delete
                                 </Button>
